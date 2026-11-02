@@ -86,10 +86,10 @@
   const activeProfile = () => { const ps = profiles(); return ps.find(p => p.id === store.get('activeProfile', 'me')) || ps[0]; };
 
   /* ---------- product rendering (shared by barcode and text results) ---------- */
-  function tilesHtml(nut, kind) {
+  function tilesHtml(nut, kind, fromText) {
     const unit = kind === 'drink' ? 'мл' : 'г';
     const rows = [['sugar', 'Захари'], ['sat', 'Наситени'], ['salt', 'Сол']];
-    if (rows.every(([k]) => nut[k] == null)) return `<div class="note">Няма данни за хранителната стойност. ${''}Можеш да ги добавиш в Open Food Facts от линка най-долу.</div>`;
+    if (rows.every(([k]) => nut[k] == null)) return `<div class="note">Няма данни за хранителната стойност. ${fromText ? '<a href="#/type">Добави стойностите на 100 г</a> от таблицата на опаковката, за да видиш бучките захар.' : 'Можеш да ги добавиш в Open Food Facts от линка най-долу.'}</div>`;
     return '<div class="tiles">' + rows.map(([k, name]) => {
       const v = nut[k]; const lv = E.level(kind, k, v);
       return `<div class="tile lv-${lv || 'none'}"><span class="k">${name}</span><span class="v">${v == null ? '–' : fmt(v) + ' г'}</span><span class="bar"></span><span class="lv">${lv ? E.LEVEL_WORD[lv] : 'няма данни'}</span></div>`;
@@ -175,12 +175,14 @@
 
   function productBody(res, nut, kind, opts) {
     const flags = E.flagsFor(res);
-    const all = opts.allergens && opts.allergens.length ? `<div style="font-size:14px;color:var(--muted)">Алергени по данни: ${esc(opts.allergens.join(', '))}${opts.traces && opts.traces.length ? '. Може да съдържа: ' + esc(opts.traces.join(', ')) : ''}. Винаги проверявай етикета.</div>` : '';
+    const traces = opts.traces && opts.traces.length ? opts.traces : (res.traces || []);
+    const al = opts.allergens || [];
+    const all = al.length || traces.length ? `<div style="font-size:14px;color:var(--muted)">${al.length ? 'Алергени по данни: ' + esc(al.join(', ')) + '. ' : ''}${traces.length ? 'Може да съдържа следи от: ' + esc(traces.join(', ')) + '. ' : ''}Винаги проверявай етикета.</div>` : '';
     return `<div class="wrap">
       <p class="lead">${esc(E.summary(res, nut, kind))}</p>
       <button class="pillbtn" id="listen">${icon('speaker', 18)}Слушай обяснението ${isSupporter() ? '' : SUP}</button>
       ${avoidHtml(res, opts.text)}
-      ${tilesHtml(nut, kind)}
+      ${tilesHtml(nut, kind, !opts.code)}
       ${sugarHtml(nut, kind, opts.serving)}
       ${calcHtml(nut, kind)}
       ${flags.length ? '<div style="display:flex;flex-direction:column;gap:10px"><h2>Важно да знаеш</h2>' + flags.map(flagHtml).join('') + '</div>' : ''}
@@ -324,7 +326,7 @@
   function viewPhoto() {
     view(`<div class="topbar"><a class="rbtn soft" href="#/" aria-label="Затвори">${icon('close')}</a><b>Снимай състава</b></div>
       <div class="wrap"><h1 style="font-size:25px;font-weight:900">Снимай състава на гърба</h1>
-      <p style="margin:0;color:var(--muted)">Ще го прочетем и ще ти покажем какво сме прочели, преди да го обясним.</p>
+      <p style="margin:0;color:var(--muted)">После ще оградиш българския текст. Ще ти покажем какво сме прочели, преди да го обясним.</p>
       <ol class="steps" style="padding:0"><li class="cur"><span></span>1 Снимка</li><li><span></span>2 Провери текста</li><li><span></span>3 Обяснение</li></ol>
       <label class="btn green" for="file">${icon('camera')}Отвори камерата</label>
       <input id="file" type="file" accept="image/*" capture="environment" class="sr">
@@ -352,22 +354,76 @@
   }
   function loadScript(src) { return new Promise((ok, bad) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); }
 
+  /* Grey, auto-invert light-on-dark labels, stretch contrast, enlarge. Tesseract reads dark text on light best. */
+  function prepare(src, box) {
+    const bx = box || { x: 0, y: 0, w: src.width, h: src.height };
+    const scale = Math.max(1, Math.min(3, 2200 / bx.w));
+    const c = document.createElement('canvas'); c.width = Math.round(bx.w * scale); c.height = Math.round(bx.h * scale);
+    const ctx = c.getContext('2d'); ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(src, bx.x, bx.y, bx.w, bx.h, 0, 0, c.width, c.height);
+    const img = ctx.getImageData(0, 0, c.width, c.height); const d = img.data; const n = d.length / 4;
+    const g = new Uint8ClampedArray(n); let sum = 0;
+    for (let i = 0; i < n; i++) { const v = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]; g[i] = v; sum += v; }
+    const invert = sum / n < 128;
+    const hist = new Uint32Array(256); for (let i = 0; i < n; i++) hist[g[i]]++;
+    let lo = 0, hi = 255, acc = 0; for (; lo < 255; lo++) { acc += hist[lo]; if (acc > n * 0.02) break; }
+    acc = 0; for (; hi > 0; hi--) { acc += hist[hi]; if (acc > n * 0.02) break; }
+    const span = Math.max(1, hi - lo);
+    for (let i = 0; i < n; i++) { let v = (g[i] - lo) * 255 / span; if (invert) v = 255 - v; d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v; d[i * 4 + 3] = 255; }
+    ctx.putImageData(img, 0, 0);
+    return c;
+  }
+
+  let lastPhoto = null;
   async function handlePhoto(file) {
+    view(`<div class="center"><div class="spinner" aria-hidden="true"></div><p>Отваряме снимката…</p></div>`);
+    try { lastPhoto = await loadImage(file); } catch (e) { toast('Не успяхме да отворим снимката.'); return go('#/photo'); }
+    viewCrop();
+  }
+
+  /* Step 2: the user frames the Bulgarian text by dragging a box over the photo. */
+  function viewCrop() {
+    if (!lastPhoto) return go('#/photo');
+    view(`<div class="topbar"><a class="rbtn soft" href="#/photo" aria-label="Назад">${icon('back')}</a><b>Огради българския текст</b></div>
+      <div class="wrap" style="gap:12px"><p style="margin:0;color:var(--muted)">Плъзни пръст върху снимката, за да оградиш само <b>българския</b> състав (от „Съставки“ до края). Така четем по-точно.</p>
+      <div id="cropwrap" style="position:relative;touch-action:none;border-radius:14px;overflow:hidden;background:#000"><canvas id="cropview" style="display:block;width:100%;height:auto"></canvas><div id="box" style="position:absolute;border:3px solid var(--amber);background:rgba(242,179,94,0.15);border-radius:6px;display:none;pointer-events:none"></div></div>
+      <button class="btn green" id="readbox" disabled style="opacity:0.5">Прочети оградения текст</button>
+      <button class="btn outline" id="readall">Прочети целия етикет</button></div><div class="foot"></div>`);
+    const cv = document.getElementById('cropview'); const wrap = document.getElementById('cropwrap'); const boxEl = document.getElementById('box');
+    const maxW = 1000; const sc = Math.min(1, maxW / lastPhoto.width);
+    cv.width = Math.round(lastPhoto.width * sc); cv.height = Math.round(lastPhoto.height * sc);
+    cv.getContext('2d').drawImage(lastPhoto, 0, 0, cv.width, cv.height);
+    let a = null, b = null, sel = null;
+    const pt = e => { const r = cv.getBoundingClientRect(); return { x: Math.max(0, Math.min(r.width, e.clientX - r.left)), y: Math.max(0, Math.min(r.height, e.clientY - r.top)) }; };
+    const draw = () => {
+      if (!a || !b) return; const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y), w = Math.abs(a.x - b.x), h = Math.abs(a.y - b.y);
+      Object.assign(boxEl.style, { display: 'block', left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
+      const r = cv.getBoundingClientRect(); const k = lastPhoto.width / r.width;
+      sel = w > 20 && h > 12 ? { x: Math.round(x * k), y: Math.round(y * k), w: Math.round(w * k), h: Math.round(h * k) } : null;
+      const btn = document.getElementById('readbox'); btn.disabled = !sel; btn.style.opacity = sel ? '1' : '0.5';
+    };
+    wrap.addEventListener('pointerdown', e => { wrap.setPointerCapture(e.pointerId); a = pt(e); b = a; draw(); });
+    wrap.addEventListener('pointermove', e => { if (!a || !(e.buttons || e.pressure)) return; b = pt(e); draw(); });
+    wrap.addEventListener('pointerup', e => { if (a) { b = pt(e); draw(); } });
+    document.getElementById('readbox').addEventListener('click', () => sel && runOcr(sel));
+    document.getElementById('readall').addEventListener('click', () => runOcr(null));
+  }
+
+  async function runOcr(box) {
     view(`<div class="center"><div class="spinner" aria-hidden="true"></div><p id="ocrmsg">Проверяваме снимката…</p></div>`);
-    let canvas; try { canvas = await loadImage(file); } catch (e) { toast('Не успяхме да отворим снимката.'); return go('#/photo'); }
-    const sharp = sharpness(canvas);
-    if (sharp < (CFG.BLUR_THRESHOLD || 60)) return viewBlur();
+    const canvas = prepare(lastPhoto, box);
+    if (sharpness(canvas) < (CFG.BLUR_THRESHOLD || 60)) return viewBlur();
     try {
       document.getElementById('ocrmsg').textContent = 'Четем състава… Първия път отнема около минута.';
       if (!window.Tesseract) await loadScript(CFG.TESSERACT_URL);
       const worker = await Tesseract.createWorker('bul', 1, { logger: m => { const el = document.getElementById('ocrmsg'); if (el && m.status === 'recognizing text') el.textContent = 'Четем състава… ' + Math.round(m.progress * 100) + '%'; } });
+      await worker.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1' });
       const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
       await worker.terminate();
       const words = [];
       (data.blocks || []).forEach(b => b.paragraphs.forEach(p => p.lines.forEach(l => { l.words.forEach(w => words.push({ t: w.text, c: w.confidence })); words.push({ t: '\n' }); })));
       if (!words.filter(w => w.t !== '\n').length) return viewBlur('Не намерихме текст на снимката.');
-      session.set('ocr', words);
-      viewReview(words);
+      viewReview(words, !!box);
     } catch (e) {
       console.error(e);
       view(`<div class="topbar"><a class="rbtn soft" href="#/" aria-label="Затвори">${icon('close')}</a></div><div class="center"><h1 style="font-size:22px">Не успяхме да прочетем снимката</h1><p>Може да няма връзка за първото зареждане на четеца. Напиши състава ръчно.</p><a class="btn green" href="#/type">${icon('pen')}Напиши съставките сам</a></div>`);
@@ -382,30 +438,43 @@
       <a class="btn green" href="#/photo">${icon('camera')}Снимай отново</a><a class="btn outline" href="#/type">${icon('pen')}Напиши съставките сам</a></div>`);
   }
 
-  function viewReview(words) {
+  function viewReview(words, framed, showAll) {
     const LOW = CFG.UNSURE_CONFIDENCE || 70;
-    const fixes = [];
+    let full = ''; const pos = [];
+    words.forEach(w => { if (w.t === '\n') { full = full.replace(/ $/, '') + '\n'; pos.push(null); return; } pos.push([full.length, full.length + w.t.length]); full += w.t + ' '; });
+    const ex = E.extractBulgarian(full);
+    const inPart = i => !ex.found || showAll || (pos[i] && pos[i][0] >= ex.start && pos[i][1] <= ex.end + 1);
+    const fixes = []; const seen = new Set(); let unsureCount = 0;
     const html = words.map((w, i) => {
-      if (w.t === '\n') return ' ';
-      const sug = w.c < LOW ? E.suggest(w.t) : null;
-      if (w.c < LOW) { if (sug) fixes.push({ i, from: w.t, to: sug }); return `<span class="unsure" data-i="${i}">${esc(w.t)}</span> `; }
+      if (w.t === '\n') return showAll || !ex.found ? '<br>' : ' ';
+      if (!inPart(i)) return '';
+      if (w.c < LOW) {
+        unsureCount++;
+        const sug = E.suggest(w.t);
+        if (sug && !seen.has(w.t) && fixes.length < 10) { seen.add(w.t); fixes.push({ i, from: w.t.replace(/[.,:;]+$/, ''), to: sug }); }
+        return `<span class="unsure" data-i="${i}">${esc(w.t)}</span> `;
+      }
       return esc(w.t) + ' ';
     }).join('');
-    const unsureCount = words.filter(w => w.t !== '\n' && w.c < LOW).length;
-    view(`<div class="topbar"><a class="rbtn soft" href="#/photo" aria-label="Назад">${icon('back')}</a><b>Провери какво прочетохме</b></div>
+    const editText = ex.found && !showAll ? ex.part : full.trim();
+    view(`<div class="topbar"><a class="rbtn soft" href="#/crop" aria-label="Назад">${icon('back')}</a><b>Провери какво прочетохме</b></div>
       <div class="wrap"><ol class="steps" style="padding:0"><li class="done"><span></span>1 Снимка</li><li class="cur"><span></span>2 Провери текста</li><li><span></span>3 Обяснение</li></ol>
+      ${ex.found && !showAll ? `<div class="flag" style="background:var(--gbg)"><h3>Намерихме българския състав</h3><p>Показваме само частта от „Съставки“ нататък. Текстът на другите езици е скрит.</p></div>` :
+        `<div class="note">Не намерихме думата „Съставки“. ${framed ? '' : 'Етикетът вероятно е на няколко езика. '}<a href="#/crop">Огради само българския текст</a> или поправи текста отдолу.</div>`}
       <p style="margin:0;color:var(--muted)">Подчертаните думи са тези, в които не сме сигурни.</p>
       <p class="label" id="read">${html}</p>
+      ${ex.found ? `<button class="btn ghost" id="toggleall" style="min-height:40px;font-size:14px">${showAll ? 'Покажи само българската част' : 'Покажи целия прочетен текст'}</button>` : ''}
       ${unsureCount ? `<div style="font-size:14px;color:var(--org);font-weight:700">${unsureCount} ${unsureCount === 1 ? 'дума' : 'думи'} за проверка</div>` : ''}
       ${fixes.length ? `<div class="chips">${fixes.map((f, k) => `<button class="chip-btn pillbtn" style="border-color:var(--orgbar)" data-fix="${k}"><s style="color:var(--muted)">${esc(f.from)}</s> → <b>${esc(f.to)}</b></button>`).join('')}</div>` : ''}
-      <div class="field"><label for="edit">Поправи, ако нещо е грешно</label><textarea id="edit" class="box">${esc(words.map(w => w.t === '\n' ? '\n' : w.t).join(' ').replace(/ \n /g, '\n').trim())}</textarea></div>
+      <div class="field"><label for="edit">Поправи, ако нещо е грешно</label><textarea id="edit" class="box">${esc(editText)}</textarea></div>
       ${nutFields()}
       <button class="btn green" id="explain">Обясни състава</button>
       <div class="grid2"><a class="btn outline" href="#/photo" style="min-height:46px;font-size:14px">Снимай отново</a><a class="btn outline" href="#/type" style="min-height:46px;font-size:14px">Напиши сам</a></div></div><div class="foot"></div>`);
     wireKind();
     const ta = document.getElementById('edit');
+    const tg = document.getElementById('toggleall'); if (tg) tg.addEventListener('click', () => viewReview(words, framed, !showAll));
     document.querySelectorAll('[data-fix]').forEach(b => b.addEventListener('click', () => {
-      const f = fixes[+b.dataset.fix]; ta.value = ta.value.replace(f.from, f.to);
+      const f = fixes[+b.dataset.fix]; ta.value = ta.value.split(f.from).join(f.to);
       const span = document.querySelector(`[data-i="${f.i}"]`); if (span) { span.textContent = f.to; span.classList.remove('unsure'); }
       b.remove();
     }));
@@ -604,6 +673,7 @@
     if ((m = /^\/a\/([A-Z0-9]+)$/.exec(path))) return viewAdditive(m[1], qs.get('from'));
     if ((m = /^\/notfound\/(\d+)$/.exec(path))) return viewNotFound(m[1]);
     if (path === '/photo') return viewPhoto();
+    if (path === '/crop') return viewCrop();
     if (path === '/type') return viewType();
     if (path === '/t') return viewText();
     if (path === '/history') return viewHistory();

@@ -59,3 +59,14 @@ if (dir) for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.json'))) {
   });
 }
 console.log(n, 'tests passed');
+
+// Multilingual label (Lidl dark chocolate, 6 languages), as read by Tesseract.
+const ocr = fs.readFileSync(path.join(__dirname, 'fixtures/chocolate-6-languages-ocr.txt'), 'utf8');
+const bg = E.extractBulgarian(ocr);
+assert.ok(bg.found && bg.part.startsWith('какаова маса'), bg.part.slice(0, 60));
+assert.ok(!/socker|kakaomassa|cacao/i.test(bg.part), 'other languages leaked in');
+const cr = E.analyseText(bg.part);
+assert.ok(cr.ing.has('sugar') && cr.ing.has('cocoa-paste'));
+assert.ok(!cr.ing.has('milk') && cr.traces && cr.traces.join(' ').includes('мляко'), 'traces must not count as ingredients');
+assert.strictEqual(E.suggest('пецитини:'), 'лецитини');
+console.log('ok multilingual label: Bulgarian part only, traces separate');

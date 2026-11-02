@@ -74,6 +74,7 @@
     'кашкавал': '#cheese', 'ароматизатор': '#flavouring', 'ароматизатори': '#flavouring', 'ароматизант': '#flavouring',
     'аромати': '#flavouring', 'мед': '#honey', 'пчелен мед': '#bee-honey', 'свинска мас': '#pork-fat',
     'сирище': '#rennet', 'мая за сирене': '#rennet', 'сирищни ензими': '#rennet', 'ший': '#shea', 'гума база': '#gum-base',
+    'фъстъци': '#peanut', 'фъстък': '#peanut', 'лешници': '#hazelnut', 'бадеми': '#almond',
     'растителни мазнини': '#vegetable-fat', 'растителни масла': '#vegetable-oil'
   };
   const ROLE_LABEL = /^(емулгатор(и|ни соли)?|консервант(и)?|стабилизатор(и)?|сгъстител(и)?|оцветител(и)?|антиоксидант(и)?|подсладител(и)?|овлажнител(и)?|влагозадържащ(и)? агент(и)?|киселинен регулатор|киселинни регулатори|регулатор(и)? на киселинност(та)?|регулатор(и)? на киселинноста|набухвател(и)?|втасващ(и)? агент(и)?|агент(и)? за обработка на брашн[оа]|овкусител(и)?|желиращ(и)? агент(и)?|глазиращ(и)? агент(и)?|окислител(и)?|киселини)(?=\s|$)\s*/;
@@ -131,13 +132,15 @@
     function analyseText(text, res) {
       res = res || emptyResult();
       const scan = text.replace(/(\d)[,.](?=\d)/g, '$1\u0001');
-      const re = /[^,;:()\[\]{}•·\n.]+/g; let m;
+      const re = /[^,;:()\[\]{}•·\n.]+/g; let m; let inTrace = false;
       while ((m = re.exec(scan))) {
         const raw = text.slice(m.index, m.index + m[0].length);
+        const after = scan[m.index + m[0].length] || '';
         let s = norm(raw.replace(/\d+[.,]?\d*\s?%/g, ''));
-        if (!s || /^[\d\s.,-]+$/.test(s)) continue;
+        if (!s || /^[\d\s.,-]+$/.test(s)) { if (after === '.') inTrace = false; continue; }
         const span = { start: m.index, end: m.index + raw.length, kind: null };
-        if (/^може да съдържа/.test(s) || /^съдържа (следи|глутен)/.test(s)) { res.notes.add('trace:' + raw.trim()); span.kind = 'ing'; res.spans.push(span); continue; }
+        if (/може да съдържа|^съдържа (следи|глутен)|^следи от/.test(s)) inTrace = true;
+        if (inTrace) { res.traces = res.traces || []; res.traces.push(raw.trim().replace(/^(.*?(може да съдържа|следи от)\s*)+/i, '')); res.notes.add('trace:' + raw.trim()); span.kind = 'ing'; res.spans.push(span); if (after === '.' || after === '\n') inTrace = false; continue; }
         if (/фенилаланин/.test(s)) { res.notes.add('phe'); span.kind = 'ing'; res.spans.push(span); continue; }
         if (NOISE.test(s)) continue;
         let prev; do { prev = s; s = s.replace(ROLE_LABEL, '').trim(); } while (s !== prev);
@@ -202,7 +205,7 @@
 
     function purposes(res) {
       const count = {};
-      for (const c of res.add.keys()) { const a = DB.a[c]; if (!a) continue; const p = a.f.map(f => PURPOSE[f]).find(Boolean); if (p) count[p] = (count[p] || 0) + 1; }
+      for (const c of res.add.keys()) { const a = DB.a[c]; if (!a) continue; const p = ranked(a).map(f => PURPOSE[f]).find(Boolean); if (p) count[p] = (count[p] || 0) + 1; }
       return Object.keys(count).sort((a, b) => count[b] - count[a]).slice(0, 2);
     }
 
@@ -235,10 +238,13 @@
       return parts.join(' ');
     }
 
+    /* Show the job an additive most often does in food first (e.g. lecithin: emulsifier before antioxidant). */
+    const ROLE_ORDER = ['raising', 'emulsifier', 'thickener', 'sweetener', 'colour', 'preservative', 'flavour-enhancer', 'propellent-gas', 'acidity', 'stabiliser', 'humectant', 'antioxidant', 'coagulant', 'carrier', 'sequestrant'];
+    const ranked = a => a ? a.f.slice().sort((x, y) => (ROLE_ORDER.indexOf(x) + 99) % 99 - (ROLE_ORDER.indexOf(y) + 99) % 99) : [];
     function additiveInfo(code) {
-      const a = DB.a[code];
-      return { code, name: a ? a.bg : code, en: a ? a.en : '', roles: a ? a.f.filter(f => ROLE[f]).map(f => ROLE[f]) : [],
-        kid: a ? a.f.map(f => KID_ROLE[f]).find(Boolean) : null, pct: a ? a.p : null, flag: FLAGS[code] || null, known: !!a };
+      const a = DB.a[code]; const f = ranked(a);
+      return { code, name: a ? a.bg : code, en: a ? a.en : '', roles: f.filter(x => ROLE[x]).map(x => ROLE[x]),
+        kid: f.map(x => KID_ROLE[x]).find(Boolean) || null, pct: a ? a.p : null, flag: FLAGS[code] || null, known: !!a };
     }
 
     /* Closest library spelling for an unsure OCR word (Levenshtein ≤ 2). */
@@ -250,11 +256,38 @@
       return prev[n];
     }
     function suggest(word) {
-      const w = norm(word).replace(/[^a-zа-я-]/g, '');
-      if (w.length < 4 || WORDS.includes(w)) return null;
+      if (/[a-z0-9]/i.test(word.replace(/[^a-z0-9а-я]/gi, '').replace(/[а-я]/gi, ''))) return null;
+      const w = norm(word).replace(/[^а-я-]/g, '');
+      if (w.length < 5 || WORDS.includes(w)) return null;
       let best = null, bd = 3;
       for (const c of WORDS) { const d = lev(w, c); if (d < bd) { bd = d; best = c; } }
-      return bd <= 2 ? best : null;
+      if (bd === 1 && best) return best;
+      if (bd === 2 && best && best[0] === w[0] && w.length >= 7 && !w.startsWith(best.slice(0, -1)) && !best.startsWith(w.slice(0, -2))) return best;
+      return null;
+    }
+
+    /* Find the Bulgarian ingredient list inside a multilingual label.
+       Starts at "Съставки"/"Състав", ends before storage/producer lines or the next language. */
+    function extractBulgarian(text) {
+      const t = text.replace(/\r/g, '');
+      const start = t.search(/съставки\s*[:;.]|състав\s*[:;.]/i);
+      if (start < 0) return { part: t.trim(), found: false, start: 0, end: t.length };
+      const from = t.indexOf(':', start) >= 0 && t.indexOf(':', start) - start < 14 ? t.indexOf(':', start) + 1 : start;
+      const rest = t.slice(from);
+      const stops = [/да се съхранява/i, /съхранявайте/i, /произведено/i, /опаковано/i, /вносител/i, /най[- ]добър до/i, /хранителна стойност/i, /fairtrade/i,
+        /(^|\n|\s)[\[(]?(EN|DE|FR|IT|ES|PT|NL|SE|SV|DK|FI|NO|PL|CZ|SK|HU|RO|RS|HR|SI|SL|GR|CY|TR|UA|RU|MK|AL|LT|LV|EE)[\])]?\s/];
+      let end = rest.length;
+      stops.forEach(re => { const m = re.exec(rest); if (m && m.index < end && m.index > 3) end = m.index; });
+      // also stop at the first line that is mostly non-Cyrillic letters (another language)
+      let pos = 0;
+      for (const line of rest.split('\n')) {
+        const letters = line.replace(/[^a-zа-яα-ω]/gi, '');
+        const cyr = line.replace(/[^а-я]/gi, '');
+        if (pos > 3 && letters.length > 12 && cyr.length / letters.length < 0.4 && pos < end) { end = pos; break; }
+        pos += line.length + 1;
+      }
+      const part = rest.slice(0, end).replace(/\s*\n\s*/g, ' ').trim();
+      return { part, found: true, start: from, end: from + end };
     }
 
     /* Personal "avoid" list check. */
@@ -272,7 +305,7 @@
       return (list || []).filter(item => AVOID_RULES[item] ? AVOID_RULES[item](res) : (norm(item).length >= 3 && hay.includes(norm(item))));
     }
 
-    return { analyseText, analyseProduct, summary, kidSummary, flagsFor, additiveInfo, level, cubes, fmt, LEVEL_WORD, LIMITS, suggest, avoidHits, AVOID_RULES, offAdditive, SRC, ING };
+    return { extractBulgarian, analyseText, analyseProduct, summary, kidSummary, flagsFor, additiveInfo, level, cubes, fmt, LEVEL_WORD, LIMITS, suggest, avoidHits, AVOID_RULES, offAdditive, SRC, ING };
   }
 
   const api = { createEngine };
