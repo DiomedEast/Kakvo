@@ -115,6 +115,7 @@
     const r = await fetch(CFG.CONTRIBUTE_URL, { method: 'POST', body: fd });
     const b = await r.json().catch(() => ({}));
     if (r.ok && b.ok) return 'ok';
+    item.lastError = r.status + (b.error ? ' ' + b.error : '') + (b.photo ? ' photo:' + b.photo : '') + (b.text ? ' text:' + b.text : '');
     return r.status === 400 || r.status === 404 ? 'drop' : 'retry';
   }
   /* Send now; if offline or the server is busy, keep it (max 5) and try again on the next start. */
@@ -122,8 +123,9 @@
     try {
       const res = await sendContribution(item);
       if (res === 'ok') return toast(item.text ? 'Благодарим! Съставът вече е в Open Food Facts и ще помогне и на другите.' : 'Благодарим! Снимката на състава е изпратена в Open Food Facts.');
+      toast('Не успяхме да изпратим снимката (' + (item.lastError || 'грешка') + '). Ще опитаме пак по-късно.');
       if (res === 'retry') queue(item);
-    } catch (e) { queue(item); }
+    } catch (e) { toast('Няма връзка със сървъра за споделяне. Ще опитаме пак по-късно.'); queue(item); }
   }
   function queue(item) { const q = store.get('outbox', []).filter(x => x.code !== item.code); q.push(item); try { store.set('outbox', q.slice(-5)); } catch (e) { /* storage full */ } }
   async function flushOutbox() {

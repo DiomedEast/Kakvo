@@ -27,6 +27,8 @@ function cors(origin, env) {
   const ok = allowed.includes(origin);
   return { ok, headers: ok ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '86400', Vary: 'Origin' } : {} };
 }
+/* Diagnostics in the Cloudflare log (Observability): what Open Food Facts answered. Never logs the password. */
+const short = s => String(s || '').replace(/\s+/g, ' ').slice(0, 400);
 const json = (status, body, headers) => new Response(JSON.stringify(body), { status, headers: Object.assign({ 'Content-Type': 'application/json' }, headers) });
 
 function limited(key, max, ms) {
@@ -80,7 +82,7 @@ export default {
 
     // 1. The product must exist; read what it already has.
     const r = await fetch(`${base}/api/v2/product/${body.code}.json?fields=code,ingredients_text_bg,selected_images`, { headers });
-    if (!r.ok) return json(502, { ok: false, error: 'open food facts read failed', status: r.status }, c.headers);
+    if (!r.ok) { const t = await r.text().catch(() => ''); console.error('OFF read failed', r.status, short(t)); return json(502, { ok: false, error: 'open food facts read failed', status: r.status }, c.headers); }
     const p = await r.json();
     if (p.status !== 1 || !p.product) return json(404, { ok: false, error: 'product not found' }, c.headers);
     const hasText = !!(p.product.ingredients_text_bg || '').trim();
@@ -94,8 +96,9 @@ export default {
     Object.entries(app).forEach(([k, v]) => fd.set(k, v));
     fd.set('imgupload_' + field, new Blob([image], { type: 'image/jpeg' }), `kakvo-${body.code}-ingredients.jpg`);
     const up = await fetch(`${base}/cgi/product_image_upload.pl`, { method: 'POST', body: fd, headers });
-    let upBody = null; try { upBody = await up.json(); } catch (e) { /* not JSON */ }
-    const photo = up.ok && upBody && /ok/i.test(upBody.status || '') ? field : (upBody && upBody.error) || 'failed (' + up.status + ')';
+    const upText = await up.text(); let upBody = null; try { upBody = JSON.parse(upText); } catch (e) { /* not JSON */ }
+    const photo = up.ok && upBody && /^status ok$/i.test(upBody.status || '') ? field : 'failed (' + up.status + ')';
+    console.log('OFF photo', body.code, field, up.status, short(upText));
 
     // 3. The text, only if the product has none.
     let text = body.text ? 'kept existing' : 'not sent';
@@ -106,10 +109,12 @@ export default {
       f2.set('comment', 'Kakvo: Bulgarian ingredients read from a label photo and checked by the user');
       Object.entries(app).forEach(([k, v]) => f2.set(k, v));
       const w = await fetch(`${base}/cgi/product_jqm2.pl`, { method: 'POST', body: f2, headers });
-      let wb = null; try { wb = await w.json(); } catch (e) { /* not JSON */ }
+      const wText = await w.text(); let wb = null; try { wb = JSON.parse(wText); } catch (e) { /* not JSON */ }
       text = w.ok && wb && wb.status === 1 ? 'saved' : 'failed (' + w.status + ')';
+      console.log('OFF text', body.code, w.status, short(wText));
     }
     const ok = photo === field && !text.startsWith('failed');
+    if (!ok) console.error('contribution failed', body.code, JSON.stringify({ photo, text }));
     return json(ok ? 200 : 502, { ok, photo, text, server: testServer ? 'test' : 'live' }, c.headers);
   }
 };
