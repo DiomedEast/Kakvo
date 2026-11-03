@@ -19,7 +19,7 @@
     const t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = msg;
     document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
   }
-  const fmt = n => String(Math.round(n * 10) / 10).replace('.', ',');
+  const fmt = n => String(n > 0 && n < 1 ? Math.round(n * 100) / 100 : Math.round(n * 10) / 10).replace('.', ',');
   const go = h => { location.hash = h; };
 
   /* Supporter status. Payments are not live yet: SUPPORT_URL in config.js turns them on.
@@ -89,7 +89,7 @@
   function tilesHtml(nut, kind, fromText) {
     const unit = kind === 'drink' ? 'мл' : 'г';
     const rows = [['sugar', 'Захари'], ['sat', 'Наситени'], ['salt', 'Сол']];
-    if (rows.every(([k]) => nut[k] == null)) return `<div class="note">Няма данни за хранителната стойност. ${fromText ? '<a href="#/type">Добави стойностите на 100 г</a> от таблицата на опаковката, за да видиш бучките захар.' : 'Можеш да ги добавиш в Open Food Facts от линка най-долу.'}</div>`;
+    if (rows.every(([k]) => nut[k] == null)) return `<div class="note">Няма данни за хранителната стойност. ${fromText ? '<a href="#/photo?m=nut&pair=t">Снимай таблицата с хранителни стойности</a>, за да видиш бучките захар.' : 'Можеш да ги добавиш в Open Food Facts от линка най-долу.'}</div>`;
     return '<div class="tiles">' + rows.map(([k, name]) => {
       const v = nut[k]; const lv = E.level(kind, k, v);
       return `<div class="tile lv-${lv || 'none'}"><span class="k">${name}</span><span class="v">${v == null ? '–' : fmt(v) + ' г'}</span><span class="bar"></span><span class="lv">${lv ? E.LEVEL_WORD[lv] : 'няма данни'}</span></div>`;
@@ -156,7 +156,7 @@
     let html = '', pos = 0;
     for (const s of res.spans.slice().sort((a, b) => a.start - b.start)) { html += esc(text.slice(pos, s.start)) + `<span class="k-${s.kind}">${esc(text.slice(s.start, s.end))}</span>`; pos = s.end; }
     html += esc(text.slice(pos));
-    return `<div style="display:flex;flex-direction:column;gap:10px"><h2>Целият състав</h2><p class="label">${html}</p></div>`;
+    return `<div style="display:flex;flex-direction:column;gap:10px"><h2>Целият състав</h2><p class="label" translate="no">${html}</p></div>`;
   }
 
   function avoidHtml(res, text) {
@@ -179,7 +179,7 @@
     const al = opts.allergens || [];
     const all = al.length || traces.length ? `<div style="font-size:14px;color:var(--muted)">${al.length ? 'Алергени по данни: ' + esc(al.join(', ')) + '. ' : ''}${traces.length ? 'Може да съдържа следи от: ' + esc(traces.join(', ')) + '. ' : ''}Винаги проверявай етикета.</div>` : '';
     return `<div class="wrap">
-      <p class="lead">${esc(E.summary(res, nut, kind))}</p>
+      ${opts.unreadable ? `<p class="lead">Не успяхме да разчетем достатъчно от състава.</p><div class="note">Разпознахме само ${res.ing.size + res.add.size} от прочетените думи, затова не можем да кажем какво има в продукта. Снимай отблизо само българския текст или го напиши.<div class="grid2" style="margin-top:10px"><a class="btn outline" href="#/photo" style="min-height:44px;font-size:14px">Снимай отново</a><a class="btn outline" href="#/type" style="min-height:44px;font-size:14px">Напиши сам</a></div></div>` : `<p class="lead">${esc(E.summary(res, nut, kind))}</p>`}
       <button class="pillbtn" id="listen">${icon('speaker', 18)}Слушай обяснението ${isSupporter() ? '' : SUP}</button>
       ${avoidHtml(res, opts.text)}
       ${tilesHtml(nut, kind, !opts.code)}
@@ -278,7 +278,7 @@
     const res = E.analyseText(d.text); const nut = d.nut || {}; const kind = d.kind || 'food';
     remember({ key: 't:' + d.text.slice(0, 60), name: d.name || 'Продукт от снимка', text: true, cubes: nut.sugar != null ? E.cubes(nut.sugar) : null, nAdd: res.add.size, warn: E.flagsFor(res).some(f => f.level === 'warn') });
     const shareData = { title: d.name || 'Продукт', nut, kind, res, text: E.summary(res, nut, kind) };
-    view(header({ title: d.name || 'Твоят продукт', meta: 'От снимка или ръчно написан състав', back: '#/type' }) + productBody(res, nut, kind, { text: d.text, back: '#/t' }));
+    view(header({ title: d.name || 'Твоят продукт', meta: 'От снимка или ръчно написан състав', back: '#/type' }) + productBody(res, nut, kind, { text: d.text, back: '#/t', serving: d.serving, unreadable: !E.readable(res) }) .replace('<div class="foot">', nutTableHtml(nut, kind) + '<div class="foot">'));
     wireProduct(res, nut, kind, shareData);
   }
 
@@ -303,7 +303,7 @@
     view(`<div class="topbar"><a class="rbtn soft" href="#/" aria-label="Затвори">${icon('close')}</a><b>Напиши съставките</b></div>
       <div class="wrap"><p style="margin:0;color:var(--muted)">Препиши ги от опаковката. Не е нужно да са перфектни: разпознаваме и Е-номера.</p>
       <div class="field"><label for="pname">Име на продукта (по желание)</label><input id="pname" value="${esc(prev.name || '')}" placeholder="напр. бисквити"></div>
-      <div class="field"><label for="typed">Съставки</label><textarea id="typed" class="box" placeholder="напр. брашно, захар, палмово масло, Е322…">${esc(text)}</textarea></div>
+      <div class="field"><label for="typed">Съставки</label><textarea id="typed" class="box" translate="no" placeholder="напр. брашно, захар, палмово масло, Е322…">${esc(text)}</textarea></div>
       <span id="count" class="src"></span><div id="live" class="chips"></div>
       ${nutFields(prev.nut, prev.kind)}
       <button class="btn green" id="explain">Обясни състава</button><a class="btn ghost" href="#/photo">${icon('camera')}Снимай вместо това</a></div><div class="foot"></div>`);
@@ -323,10 +323,15 @@
   }
 
   /* ---------- photo + OCR ---------- */
-  function viewPhoto() {
-    view(`<div class="topbar"><a class="rbtn soft" href="#/" aria-label="Затвори">${icon('close')}</a><b>Снимай състава</b></div>
-      <div class="wrap"><h1 style="font-size:25px;font-weight:900">Снимай състава на гърба</h1>
-      <p style="margin:0;color:var(--muted)">После ще оградиш българския текст. Ще ти покажем какво сме прочели, преди да го обясним.</p>
+  let photoMode = 'ing', lastBox = null;
+  function viewPhoto(mode, pair) {
+    photoMode = mode === 'nut' ? 'nut' : 'ing';
+    if (pair) session.set('pair', pair);
+    const nutM = photoMode === 'nut';
+    view(`<div class="topbar"><a class="rbtn soft" href="#/" aria-label="Затвори">${icon('close')}</a><b>${nutM ? 'Снимай таблицата' : 'Снимай състава'}</b></div>
+      <div class="wrap"><div class="seg light" role="group" aria-label="Какво снимаш"><a href="#/photo" class="${nutM ? '' : 'on'}">Съставки</a><a href="#/photo?m=nut" class="${nutM ? 'on' : ''}">Хранителни стойности</a></div>
+      <h1 style="font-size:25px;font-weight:900">${nutM ? 'Снимай таблицата „Хранителни стойности“' : 'Снимай състава на гърба'}</h1>
+      <p style="margin:0;color:var(--muted)">${nutM ? 'Числата са еднакви на всички езици, затова тук езикът няма значение. После ще оградиш числата и ще ги провериш.' : 'После ще оградиш българския текст. Ще ти покажем какво сме прочели, преди да го обясним.'}</p>
       <ol class="steps" style="padding:0"><li class="cur"><span></span>1 Снимка</li><li><span></span>2 Провери текста</li><li><span></span>3 Обяснение</li></ol>
       <label class="btn green" for="file">${icon('camera')}Отвори камерата</label>
       <input id="file" type="file" accept="image/*" capture="environment" class="sr">
@@ -338,7 +343,7 @@
   async function loadImage(file) {
     const url = URL.createObjectURL(file);
     const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = url; });
-    const scale = Math.min(1, 1800 / Math.max(img.width, img.height));
+    const scale = Math.min(1, 3200 / Math.max(img.width, img.height));
     const c = document.createElement('canvas'); c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
     c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
     return c;
@@ -357,7 +362,7 @@
   /* Grey, auto-invert light-on-dark labels, stretch contrast, enlarge. Tesseract reads dark text on light best. */
   function prepare(src, box) {
     const bx = box || { x: 0, y: 0, w: src.width, h: src.height };
-    const scale = Math.max(1, Math.min(3, 2200 / bx.w));
+    const scale = Math.max(0.5, Math.min(3, 2400 / bx.w));
     const c = document.createElement('canvas'); c.width = Math.round(bx.w * scale); c.height = Math.round(bx.h * scale);
     const ctx = c.getContext('2d'); ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(src, bx.x, bx.y, bx.w, bx.h, 0, 0, c.width, c.height);
@@ -384,11 +389,11 @@
   /* Step 2: the user frames the Bulgarian text by dragging a box over the photo. */
   function viewCrop() {
     if (!lastPhoto) return go('#/photo');
-    view(`<div class="topbar"><a class="rbtn soft" href="#/photo" aria-label="Назад">${icon('back')}</a><b>Огради българския текст</b></div>
-      <div class="wrap" style="gap:12px"><p style="margin:0;color:var(--muted)">Плъзни пръст върху снимката, за да оградиш само <b>българския</b> състав (от „Съставки“ до края). Така четем по-точно.</p>
+    view(`<div class="topbar"><a class="rbtn soft" href="#/photo" aria-label="Назад">${icon('back')}</a><b>${photoMode === 'nut' ? 'Огради числата' : 'Огради българския текст'}</b></div>
+      <div class="wrap" style="gap:12px"><p style="margin:0;color:var(--muted)">${photoMode === 'nut' ? 'Плъзни пръст, за да оградиш <b>колоните с числата</b> (от „на 100 г“ надолу до солта). Надписите не са нужни.' : 'Плъзни пръст върху снимката, за да оградиш само <b>българския</b> състав (от „Съставки“ до края). Така четем по-точно.'}</p>
       <div id="cropwrap" style="position:relative;touch-action:none;border-radius:14px;overflow:hidden;background:#000"><canvas id="cropview" style="display:block;width:100%;height:auto"></canvas><div id="box" style="position:absolute;border:3px solid var(--amber);background:rgba(242,179,94,0.15);border-radius:6px;display:none;pointer-events:none"></div></div>
-      <button class="btn green" id="readbox" disabled style="opacity:0.5">Прочети оградения текст</button>
-      <button class="btn outline" id="readall">Прочети целия етикет</button></div><div class="foot"></div>`);
+      <button class="btn green" id="readbox" disabled style="opacity:0.5">${photoMode === 'nut' ? 'Прочети оградените числа' : 'Прочети оградения текст'}</button>
+      <button class="btn outline" id="readall">Прочети цялата снимка</button></div><div class="foot"></div>`);
     const cv = document.getElementById('cropview'); const wrap = document.getElementById('cropwrap'); const boxEl = document.getElementById('box');
     const maxW = 1000; const sc = Math.min(1, maxW / lastPhoto.width);
     cv.width = Math.round(lastPhoto.width * sc); cv.height = Math.round(lastPhoto.height * sc);
@@ -409,21 +414,25 @@
     document.getElementById('readall').addEventListener('click', () => runOcr(null));
   }
 
-  async function runOcr(box) {
+  async function runOcr(box, lang) {
+    lastBox = box; lang = lang || (photoMode === 'nut' ? 'eng' : 'bul');
     view(`<div class="center"><div class="spinner" aria-hidden="true"></div><p id="ocrmsg">Проверяваме снимката…</p></div>`);
     const canvas = prepare(lastPhoto, box);
     if (sharpness(canvas) < (CFG.BLUR_THRESHOLD || 60)) return viewBlur();
     try {
-      document.getElementById('ocrmsg').textContent = 'Четем състава… Първия път отнема около минута.';
+      const what = photoMode === 'nut' ? 'Четем числата…' : 'Четем състава…';
+      document.getElementById('ocrmsg').textContent = what + ' Първия път отнема около минута.';
       if (!window.Tesseract) await loadScript(CFG.TESSERACT_URL);
-      const worker = await Tesseract.createWorker('bul', 1, { logger: m => { const el = document.getElementById('ocrmsg'); if (el && m.status === 'recognizing text') el.textContent = 'Четем състава… ' + Math.round(m.progress * 100) + '%'; } });
+      const worker = await Tesseract.createWorker(lang, 1, { logger: m => { const el = document.getElementById('ocrmsg'); if (el && m.status === 'recognizing text') el.textContent = what + ' ' + Math.round(m.progress * 100) + '%'; } });
       await worker.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1' });
       const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
       await worker.terminate();
-      const words = [];
-      (data.blocks || []).forEach(b => b.paragraphs.forEach(p => p.lines.forEach(l => { l.words.forEach(w => words.push({ t: w.text, c: w.confidence })); words.push({ t: '\n' }); })));
+      const words = []; const lines = [];
+      (data.blocks || []).forEach(b => b.paragraphs.forEach(p => p.lines.forEach(l => { lines.push(l.words.map(w => w.text).join(' ')); l.words.forEach(w => words.push({ t: w.text, c: w.confidence })); words.push({ t: '\n' }); })));
       if (!words.filter(w => w.t !== '\n').length) return viewBlur('Не намерихме текст на снимката.');
-      viewReview(words, !!box);
+      window.KAKVO_LAST_OCR = lines;
+      if (photoMode === 'nut') return viewNutConfirm(E.parseNutrition(lines.join('\n')));
+      viewReview(words, !!box, false, lang);
     } catch (e) {
       console.error(e);
       view(`<div class="topbar"><a class="rbtn soft" href="#/" aria-label="Затвори">${icon('close')}</a></div><div class="center"><h1 style="font-size:22px">Не успяхме да прочетем снимката</h1><p>Може да няма връзка за първото зареждане на четеца. Напиши състава ръчно.</p><a class="btn green" href="#/type">${icon('pen')}Напиши съставките сам</a></div>`);
@@ -438,11 +447,12 @@
       <a class="btn green" href="#/photo">${icon('camera')}Снимай отново</a><a class="btn outline" href="#/type">${icon('pen')}Напиши съставките сам</a></div>`);
   }
 
-  function viewReview(words, framed, showAll) {
+  function viewReview(words, framed, showAll, lang) {
+    const en = lang === 'eng';
     const LOW = CFG.UNSURE_CONFIDENCE || 70;
     let full = ''; const pos = [];
     words.forEach(w => { if (w.t === '\n') { full = full.replace(/ $/, '') + '\n'; pos.push(null); return; } pos.push([full.length, full.length + w.t.length]); full += w.t + ' '; });
-    const ex = E.extractBulgarian(full);
+    const ex = en ? E.extractEnglish(full) : E.extractBulgarian(full);
     const inPart = i => !ex.found || showAll || (pos[i] && pos[i][0] >= ex.start && pos[i][1] <= ex.end + 1);
     const fixes = []; const seen = new Set(); let unsureCount = 0;
     const html = words.map((w, i) => {
@@ -450,7 +460,7 @@
       if (!inPart(i)) return '';
       if (w.c < LOW) {
         unsureCount++;
-        const sug = E.suggest(w.t);
+        const sug = en ? null : E.suggest(w.t);
         if (sug && !seen.has(w.t) && fixes.length < 10) { seen.add(w.t); fixes.push({ i, from: w.t.replace(/[.,:;]+$/, ''), to: sug }); }
         return `<span class="unsure" data-i="${i}">${esc(w.t)}</span> `;
       }
@@ -459,28 +469,90 @@
     const editText = ex.found && !showAll ? ex.part : full.trim();
     view(`<div class="topbar"><a class="rbtn soft" href="#/crop" aria-label="Назад">${icon('back')}</a><b>Провери какво прочетохме</b></div>
       <div class="wrap"><ol class="steps" style="padding:0"><li class="done"><span></span>1 Снимка</li><li class="cur"><span></span>2 Провери текста</li><li><span></span>3 Обяснение</li></ol>
-      ${ex.found && !showAll ? `<div class="flag" style="background:var(--gbg)"><h3>Намерихме българския състав</h3><p>Показваме само частта от „Съставки“ нататък. Текстът на другите езици е скрит.</p></div>` :
-        `<div class="note">Не намерихме думата „Съставки“. ${framed ? '' : 'Етикетът вероятно е на няколко езика. '}<a href="#/crop">Огради само българския текст</a> или поправи текста отдолу.</div>`}
+      ${ex.found && !showAll ? `<div class="flag" style="background:var(--gbg)"><h3>${en ? 'Намерихме английския състав' : 'Намерихме българския състав'}</h3><p>Показваме само частта от „${en ? 'Ingredients' : 'Съставки'}“ нататък. Текстът на другите езици е скрит.</p></div>` :
+        `<div class="note">Не намерихме думата „${en ? 'Ingredients' : 'Съставки'}“. ${framed ? '' : 'Етикетът вероятно е на няколко езика. '}<a href="#/crop">Огради само ${en ? 'английския' : 'българския'} текст</a> или поправи текста отдолу.</div>
+        ${en ? '' : `<button class="btn ghost" id="readen" style="min-height:42px;font-size:14px">Съставът е само на английски? Прочети на английски</button>`}`}
       <p style="margin:0;color:var(--muted)">Подчертаните думи са тези, в които не сме сигурни.</p>
-      <p class="label" id="read">${html}</p>
+      <p class="label" id="read" translate="no">${html}</p>
       ${ex.found ? `<button class="btn ghost" id="toggleall" style="min-height:40px;font-size:14px">${showAll ? 'Покажи само българската част' : 'Покажи целия прочетен текст'}</button>` : ''}
       ${unsureCount ? `<div style="font-size:14px;color:var(--org);font-weight:700">${unsureCount} ${unsureCount === 1 ? 'дума' : 'думи'} за проверка</div>` : ''}
       ${fixes.length ? `<div class="chips">${fixes.map((f, k) => `<button class="chip-btn pillbtn" style="border-color:var(--orgbar)" data-fix="${k}"><s style="color:var(--muted)">${esc(f.from)}</s> → <b>${esc(f.to)}</b></button>`).join('')}</div>` : ''}
-      <div class="field"><label for="edit">Поправи, ако нещо е грешно</label><textarea id="edit" class="box">${esc(editText)}</textarea></div>
-      ${nutFields()}
+      <div class="field"><label for="edit">Поправи, ако нещо е грешно</label><textarea id="edit" class="box" translate="no">${esc(editText)}</textarea></div>
+      ${pendingNut() ? '' : nutFields()}
       <button class="btn green" id="explain">Обясни състава</button>
       <div class="grid2"><a class="btn outline" href="#/photo" style="min-height:46px;font-size:14px">Снимай отново</a><a class="btn outline" href="#/type" style="min-height:46px;font-size:14px">Напиши сам</a></div></div><div class="foot"></div>`);
     wireKind();
     const ta = document.getElementById('edit');
-    const tg = document.getElementById('toggleall'); if (tg) tg.addEventListener('click', () => viewReview(words, framed, !showAll));
+    const tg = document.getElementById('toggleall'); if (tg) tg.addEventListener('click', () => viewReview(words, framed, !showAll, lang));
+    const re = document.getElementById('readen'); if (re) re.addEventListener('click', () => runOcr(lastBox, 'eng'));
     document.querySelectorAll('[data-fix]').forEach(b => b.addEventListener('click', () => {
       const f = fixes[+b.dataset.fix]; ta.value = ta.value.split(f.from).join(f.to);
       const span = document.querySelector(`[data-i="${f.i}"]`); if (span) { span.textContent = f.to; span.classList.remove('unsure'); }
       b.remove();
     }));
     document.getElementById('explain').addEventListener('click', () => {
-      const n = readNut(); session.set('text', { text: ta.value, name: '', nut: n.nut, kind: n.kind }); go('#/t');
+      const pn = pendingNut(); const n = pn || readNut();
+      session.set('text', { text: ta.value, name: '', nut: n.nut, kind: n.kind, serving: n.serving }); session.set('pair', null); go('#/t');
     });
+  }
+
+  /* ---------- nutrition table (photo) ---------- */
+  const NUT_FIELDS = [['kcal', 'Енергия', 'ккал'], ['fat', 'Мазнини', 'г'], ['sat', 'от тях наситени', 'г'], ['carbs', 'Въглехидрати', 'г'], ['sugar', 'от тях захари', 'г'], ['fibre', 'Фибри', 'г'], ['protein', 'Белтъци', 'г'], ['salt', 'Сол', 'г']];
+  /* Nutrition read from a photo, waiting for the ingredients photo of the same product. */
+  function pendingNut() { const d = session.get('nut'); return session.get('pair') === 'n' && d ? d : null; }
+
+  function viewNutConfirm(p) {
+    const read = NUT_FIELDS.filter(([k]) => p[k] != null).length;
+    const doubt = new Set(p.doubt || []);
+    view(`<div class="topbar"><a class="rbtn soft" href="#/crop" aria-label="Назад">${icon('back')}</a><b>Провери числата</b></div>
+      <div class="wrap"><ol class="steps" style="padding:0"><li class="done"><span></span>1 Снимка</li><li class="cur"><span></span>2 Провери числата</li><li><span></span>3 Обяснение</li></ol>
+      ${read >= 4 ? `<p style="margin:0;color:var(--muted)">Сравни с таблицата на опаковката (колоната „на 100 г“) и поправи, ако нещо е грешно.${doubt.size ? ' Числата в <b style="color:var(--org)">оранжево</b> не сме прочели сигурно.' : ''}</p>`
+        : `<div class="note">Прочетохме само ${read} ${read === 1 ? 'число' : 'числа'}. Огради само колоните с числата и опитай пак, или ги препиши отдолу.</div>`}
+      <div class="seg light" role="group" aria-label="Вид продукт"><button type="button" data-kind="food" class="on">Храна (на 100 г)</button><button type="button" data-kind="drink">Напитка (на 100 мл)</button></div>
+      <div class="grid2">${NUT_FIELDS.map(([k, name, u]) => `<div class="field"><label for="f-${k}"${doubt.has(k) ? ' style="color:var(--org)"' : ''}>${name}, ${u}${doubt.has(k) ? ' · провери' : ''}</label><input id="f-${k}" inputmode="decimal" translate="no" value="${p[k] != null ? String(p[k]).replace('.', ',') : ''}"${doubt.has(k) ? ' style="border-color:var(--orgbar);background:var(--orgbg)"' : ''}></div>`).join('')}
+        <div class="field"><label for="f-portion">Порция, г (ако има)</label><input id="f-portion" inputmode="decimal" value="${p.portion || ''}"></div></div>
+      <div id="echeck"></div>
+      <button class="btn green" id="nutgo">Покажи</button>
+      <div class="grid2"><a class="btn outline" href="#/photo?m=nut" style="min-height:46px;font-size:14px">Снимай отново</a><a class="btn outline" href="#/crop" style="min-height:46px;font-size:14px">Огради отново</a></div></div><div class="foot"></div>`);
+    wireKind();
+    const val = id => { const v = parseFloat((document.getElementById(id).value || '').replace(',', '.')); return isFinite(v) && v >= 0 ? v : null; };
+    const readAll = () => { const n = {}; NUT_FIELDS.forEach(([k]) => { n[k] = val('f-' + k); }); return n; };
+    const check = () => {
+      const n = readAll(); const c = E.energyCheck(n); const el = document.getElementById('echeck');
+      const bad = (n.sat != null && n.fat != null && n.sat > n.fat) || (n.sugar != null && n.carbs != null && n.sugar > n.carbs);
+      if (bad) el.innerHTML = `<div class="flag"><h3>Провери числата</h3><p>Наситените не може да са повече от мазнините, а захарите повече от въглехидратите.</p></div>`;
+      else if (!c) el.innerHTML = '';
+      else if (c.ok) el.innerHTML = `<div class="flag" style="background:var(--gbg)"><h3>Числата си пасват</h3><p>Енергията (${fmt(n.kcal)} ккал) отговаря на мазнините, въглехидратите и белтъците (≈ ${c.calc} ккал). Проверката хваща грешки в тези числа, не в наситените и захарите.</p></div>`;
+      else el.innerHTML = `<div class="flag"><h3>Провери числата</h3><p>По мазнините, въглехидратите и белтъците се получават ≈ ${c.calc} ккал, а в таблицата пише ${fmt(n.kcal)}. Някое число вероятно е прочетено грешно.</p></div>`;
+    };
+    document.querySelectorAll('.wrap input').forEach(i => i.addEventListener('input', check)); check();
+    document.getElementById('nutgo').addEventListener('click', () => {
+      const nut = readAll(); const k = document.querySelector('[data-kind].on'); const kind = k ? k.dataset.kind : 'food';
+      if (!NUT_FIELDS.some(([f]) => nut[f] != null)) return toast('Напиши поне едно число.');
+      const d = { nut, kind, serving: val('f-portion') };
+      const t = session.get('text');
+      if (session.get('pair') === 't' && t && t.text) { session.set('text', Object.assign(t, d)); session.set('pair', null); return go('#/t'); }
+      session.set('nut', d); session.set('pair', null); go('#/n');
+    });
+  }
+
+  function nutTableHtml(nut, kind) {
+    const have = NUT_FIELDS.filter(([k]) => nut[k] != null); if (have.length < 2) return '';
+    return `<div class="wrap" style="padding-top:0"><div class="card"><h2>Хранителни стойности на 100 ${kind === 'drink' ? 'мл' : 'г'}</h2>${have.map(([k, name, u]) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--line)"><span>${name}</span><b>${fmt(nut[k])} ${u}</b></div>`).join('')}</div></div>`;
+  }
+
+  function viewNut() {
+    const d = session.get('nut'); if (!d) return go('#/photo?m=nut');
+    const nut = d.nut, kind = d.kind || 'food'; const unit = kind === 'drink' ? 'мл' : 'г';
+    const parts = [];
+    [['sugar', 'захари'], ['sat', 'наситени мазнини'], ['salt', 'сол']].forEach(([k, w]) => { const lv = E.level(kind, k, nut[k]); if (lv) parts.push(`${E.LEVEL_WORD[lv]} съдържание на ${w}: ${fmt(nut[k])} г на 100 ${unit}.`); });
+    view(header({ title: 'Хранителни стойности', meta: 'От снимка на таблицата', back: '#/photo?m=nut' }) + `<div class="wrap">
+      <p class="lead">${esc(parts.join(' ') || 'Няма числа за захари, наситени мазнини и сол.')}</p>
+      ${tilesHtml(nut, kind, true)}${sugarHtml(nut, kind, d.serving)}${calcHtml(nut, kind)}
+      <a class="btn green" href="#/photo?pair=n">${icon('camera')}Добави и съставките</a>
+      <div class="src">Съставките казват какви добавки има. Таблицата казва колко захар, мазнини и сол.</div></div>` + nutTableHtml(nut, kind) + FOOT());
+    const sh = document.getElementById('share'); if (sh) sh.addEventListener('click', () => shareSheet({ title: 'Хранителни стойности', nut, kind, res: E.analyseText(''), text: parts.join(' ') }));
+    wireCalc();
   }
 
   /* ---------- scanner ---------- */
@@ -672,7 +744,8 @@
     if ((m = /^\/k\/(\d{6,14})$/.exec(path))) return viewProduct(m[1], true);
     if ((m = /^\/a\/([A-Z0-9]+)$/.exec(path))) return viewAdditive(m[1], qs.get('from'));
     if ((m = /^\/notfound\/(\d+)$/.exec(path))) return viewNotFound(m[1]);
-    if (path === '/photo') return viewPhoto();
+    if (path === '/photo') return viewPhoto(qs.get('m'), qs.get('pair'));
+    if (path === '/n') return viewNut();
     if (path === '/crop') return viewCrop();
     if (path === '/type') return viewType();
     if (path === '/t') return viewText();

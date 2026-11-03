@@ -70,3 +70,15 @@ assert.ok(cr.ing.has('sugar') && cr.ing.has('cocoa-paste'));
 assert.ok(!cr.ing.has('milk') && cr.traces && cr.traces.join(' ').includes('мляко'), 'traces must not count as ingredients');
 assert.strictEqual(E.suggest('пецитини:'), 'лецитини');
 console.log('ok multilingual label: Bulgarian part only, traces separate');
+
+// Nutrition table: clean English reading and a noisy reading of the same Lidl table.
+const clean = E.parseNutrition('ø/100 g ø/20 g %RI\nEnergy 2431 kJ / 588 kcal 485 kJ/117 kcal 6%\nFat 48,1 g 9,6 g 14%\nof which saturates 29,0 g 5,8 g 29%\nCarbohydrate 21,2 g 4,2 g 2%\nof which sugars 12,8 g 2,6 g 3%\nFibre 14,0 g 2,8 g\nProtein 10,5 g 2,1 g 4%\nSalt 0,02 g <0,01 g <1%\nRI (reference intake) 8400 kJ');
+assert.deepStrictEqual([clean.fat, clean.sat, clean.carbs, clean.sugar, clean.fibre, clean.protein, clean.salt, clean.kcal, clean.portion], [48.1, 29, 21.2, 12.8, 14, 10.5, 0.02, 588, 20]);
+assert.ok(clean.check.ok && clean.doubt.length === 0);
+const noisy = E.parseNutrition('0/100 9/20q %RI\n/588keal | 4850/5\n48) gq 38 g Eh\n~ 20q 38g 8%\n- A2g 429 2%\n128g 28g 3%\n~ 140g 28g\n~ 105g 2g 4%\n002g Q0lg «3\n3400 k/2000 keal)/Consumul');
+assert.strictEqual(noisy.salt, 0.02); assert.strictEqual(noisy.carbs, 21); assert.ok(noisy.doubt.includes('carbs') && noisy.check.ok);
+// English ingredients and the "could not read" guard
+const en = E.analyseText('Ingredients: cocoa mass, sugar, emulsifier: lecithins (soya). May contain traces of milk.');
+assert.ok(en.add.has('E322') && en.ing.has('sugar') && !en.ing.has('milk') && E.readable(en));
+assert.ok(!E.readable(E.analyseText('Kakaotasha, zosket, totefeteg, wapyuezaai, sbvsaet')));
+console.log('ok nutrition table, English ingredients, unreadable guard');

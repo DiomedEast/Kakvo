@@ -77,8 +77,8 @@
     'фъстъци': '#peanut', 'фъстък': '#peanut', 'лешници': '#hazelnut', 'бадеми': '#almond',
     'растителни мазнини': '#vegetable-fat', 'растителни масла': '#vegetable-oil'
   };
-  const ROLE_LABEL = /^(емулгатор(и|ни соли)?|консервант(и)?|стабилизатор(и)?|сгъстител(и)?|оцветител(и)?|антиоксидант(и)?|подсладител(и)?|овлажнител(и)?|влагозадържащ(и)? агент(и)?|киселинен регулатор|киселинни регулатори|регулатор(и)? на киселинност(та)?|регулатор(и)? на киселинноста|набухвател(и)?|втасващ(и)? агент(и)?|агент(и)? за обработка на брашн[оа]|овкусител(и)?|желиращ(и)? агент(и)?|глазиращ(и)? агент(и)?|окислител(и)?|киселини)(?=\s|$)\s*/;
-  const NOISE = /^(съставки|състав|сьставки|ingredients|най добър до|партида|съхранение|условия на съхранение|производител|вносител|нетно количество|енергийна стойност|алергени|опаковано в защитна атмосфера|минимум|българия)(?=\s|$)/;
+  const ROLE_LABEL = /^(емулгатор(и|ни соли)?|консервант(и)?|стабилизатор(и)?|сгъстител(и)?|оцветител(и)?|антиоксидант(и)?|подсладител(и)?|овлажнител(и)?|влагозадържащ(и)? агент(и)?|киселинен регулатор|киселинни регулатори|регулатор(и)? на киселинност(та)?|регулатор(и)? на киселинноста|набухвател(и)?|втасващ(и)? агент(и)?|агент(и)? за обработка на брашн[оа]|овкусител(и)?|желиращ(и)? агент(и)?|глазиращ(и)? агент(и)?|окислител(и)?|киселини|emulsifiers?|preservatives?|stabili[sz]ers?|thickeners?|colou?rs?|antioxidants?|sweeteners?|humectants?|acidity regulators?|raising agents?|flavou?r enhancers?|gelling agents?|glazing agents?|acids?)(?=\s|$)\s*/;
+  const NOISE = /^(съставки|състав|сьставки|ingredients|най добър до|партида|съхранение|условия на съхранение|производител|вносител|нетно количество|енергийна стойност|алергени|опаковано в защитна атмосфера|минимум|българия|ingredients|best before|store in|produced|packed in|net weight)(?=\s|$)/;
   const LETTER = /[a-zа-я]/i;
   const SUFFIX = { 'а': 'A', 'б': 'B', 'с': 'C', 'ц': 'C', 'д': 'D', 'е': 'E', a: 'A', b: 'B', c: 'C', d: 'D', e: 'E' };
 
@@ -88,6 +88,8 @@
     const ING = new Map(), NAMES = new Map();
     DB.i.forEach(x => { ING.set(x.t, x); const k = norm(x.bg); if (!NAMES.has(k)) NAMES.set(k, { ing: x }); });
     Object.keys(DB.a).forEach(c => { NAMES.set(norm(DB.a[c].bg), { add: c }); });
+    DB.i.forEach(x => { const k = x.en && norm(x.en); if (k && k.length >= 3 && !NAMES.has(k)) NAMES.set(k, { ing: x }); });
+    Object.keys(DB.a).forEach(c => { const k = DB.a[c].en && norm(DB.a[c].en); if (k && !NAMES.has(k)) NAMES.set(k, { add: c }); });
     Object.keys(ALIAS).forEach(k => { const v = ALIAS[k]; NAMES.set(k, v[0] === '#' ? { ing: ING.get(v.slice(1)) } : { add: v }); });
     for (const [k, v] of NAMES) if (!v.add && !v.ing) NAMES.delete(k);
     const NAME_KEYS = [...NAMES.keys()].filter(k => k.length >= 4).sort((a, b) => b.length - a.length);
@@ -139,8 +141,8 @@
         let s = norm(raw.replace(/\d+[.,]?\d*\s?%/g, ''));
         if (!s || /^[\d\s.,-]+$/.test(s)) { if (after === '.') inTrace = false; continue; }
         const span = { start: m.index, end: m.index + raw.length, kind: null };
-        if (/може да съдържа|^съдържа (следи|глутен)|^следи от/.test(s)) inTrace = true;
-        if (inTrace) { res.traces = res.traces || []; res.traces.push(raw.trim().replace(/^(.*?(може да съдържа|следи от)\s*)+/i, '')); res.notes.add('trace:' + raw.trim()); span.kind = 'ing'; res.spans.push(span); if (after === '.' || after === '\n') inTrace = false; continue; }
+        if (/може да съдържа|^съдържа (следи|глутен)|^следи от|may contain|^traces? of/.test(s)) inTrace = true;
+        if (inTrace) { res.traces = res.traces || []; res.traces.push(raw.trim().replace(/^(.*?(може да съдържа|следи от|may contain|traces? of)\s*)+/i, '')); res.notes.add('trace:' + raw.trim()); span.kind = 'ing'; res.spans.push(span); if (after === '.' || after === '\n') inTrace = false; continue; }
         if (/фенилаланин/.test(s)) { res.notes.add('phe'); span.kind = 'ing'; res.spans.push(span); continue; }
         if (NOISE.test(s)) continue;
         let prev; do { prev = s; s = s.replace(ROLE_LABEL, '').trim(); } while (s !== prev);
@@ -191,7 +193,7 @@
       return v <= lo ? 'low' : v > hi ? 'high' : 'mid';
     }
     const cubes = g => Math.round(g / 4 * 2) / 2;
-    const fmt = n => String(Math.round(n * 10) / 10).replace('.', ',');
+    const fmt = n => String(n > 0 && n < 1 ? Math.round(n * 100) / 100 : Math.round(n * 10) / 10).replace('.', ',');
     const LEVEL_WORD = { low: 'Ниско', mid: 'Средно', high: 'Високо' };
 
     function flagsFor(res) {
@@ -305,7 +307,122 @@
       return (list || []).filter(item => AVOID_RULES[item] ? AVOID_RULES[item](res) : (norm(item).length >= 3 && hay.includes(norm(item))));
     }
 
-    return { extractBulgarian, analyseText, analyseProduct, summary, kidSummary, flagsFor, additiveInfo, level, cubes, fmt, LEVEL_WORD, LIMITS, suggest, avoidHits, AVOID_RULES, offAdditive, SRC, ING };
+    /* Same idea as extractBulgarian, for the English ingredient list (imported products). */
+    function extractEnglish(text) {
+      const t = text.replace(/\r/g, '');
+      const start = t.search(/ingredients?\s*[:;.]/i);
+      if (start < 0) return { part: t.trim(), found: false, start: 0, end: t.length };
+      const from = t.indexOf(':', start) >= 0 && t.indexOf(':', start) - start < 14 ? t.indexOf(':', start) + 1 : start;
+      const rest = t.slice(from);
+      const stops = [/store (in|at)/i, /keep (in|refrigerated)/i, /best before/i, /produced (in|by|for)/i, /packed (in|by)/i, /nutrition/i, /fairtrade/i,
+        /(^|\n|\s)[\[(]?(BG|DE|FR|IT|ES|PT|NL|SE|SV|DK|FI|NO|PL|CZ|SK|HU|RO|RS|HR|SI|SL|GR|CY|TR|UA|RU|MK|AL|LT|LV|EE)[\])]?\s/];
+      let end = rest.length;
+      stops.forEach(re => { const m = re.exec(rest); if (m && m.index < end && m.index > 3) end = m.index; });
+      let pos = 0;
+      for (const line of rest.split('\n')) {
+        const letters = line.replace(/[^a-zа-яα-ω]/gi, ''); const lat = line.replace(/[^a-z]/gi, '');
+        if (pos > 3 && letters.length > 12 && lat.length / letters.length < 0.6 && pos < end) { end = pos; break; }
+        pos += line.length + 1;
+      }
+      return { part: rest.slice(0, end).replace(/\s*\n\s*/g, ' ').trim(), found: true, start: from, end: from + end };
+    }
+
+    /* Did we understand enough of the text to give an answer? Guards against confident results on OCR garbage. */
+    function readable(res) {
+      const known = res.ing.size + res.add.size; const unk = res.unk.length;
+      return known >= 2 && known / Math.max(1, known + unk) >= 0.35;
+    }
+
+    /* ---------- nutrition table from a photo ----------
+       Labels are in many languages but the numbers are not, and EU law fixes their order
+       (Reg. 1169/2011, Annex XV): energy, fat, saturates, carbohydrate, sugars, [fibre], protein, salt.
+       We read the first number of each row (per 100 g), cross-check with the portion column when there is one,
+       then check the energy: kcal ≈ 9×fat + 4×carbohydrate + 4×protein + 2×fibre (Annex XIV). */
+    const NUT_ORDER7 = ['fat', 'sat', 'carbs', 'sugar', 'fibre', 'protein', 'salt'];
+    const NUT_ORDER6 = ['fat', 'sat', 'carbs', 'sugar', 'protein', 'salt'];
+    const NUT_WORDS = {
+      sat: /наситен|saturat|mättat|zasi[cć]en|satura|κορεσμ/i, sugar: /захари|sugars|socker|še[cć]er|zahar|σάκχαρ/i,
+      fibre: /влакнин|fib(re|er)|vlakn|ballast|εδώδιμ/i, protein: /белтъц|protein|bjelan|beljak|πρωτε/i, salt: /(^|[^a-zа-я])(сол|salt|sol|sare|αλάτι)([^a-zа-я]|$)/i,
+      carbs: /въглехидрат|carbohydr|kolhydrat|ugljikohidr|ugljeni|glucide|υδατάνθρ/i, fat: /мазнини|(^|\W)fat(\W|$)|fett|masti|gr[aă]simi|λιπαρ/i
+    };
+    function numCands(tok) {
+      let t = String(tok).replace(/[~–—:;|«»()]/g, '').replace(/^[^\dOoQIl]+/, '');
+      t = t.replace(/[Oo](?=[\d.,]|$)/g, '0').replace(/(?<=\d)[Oo]/g, '0').replace(/[Il](?=\d)/g, '1').replace(/(?<=\d)[Il]/g, '1');
+      const m = /(\d+(?:[.,]\d+)?)(.*)$/.exec(t); if (!m) return [];
+      const core = m[1].replace(',', '.'), rest = m[2]; const unit = /^\s*[gqг¢]/i.test(rest);
+      const out = []; const add = (v, cost) => { if (isFinite(v) && v >= 0 && v <= 100 && !out.some(o => Math.abs(o.v - v) < 1e-9)) out.push({ v: Math.round(v * 100) / 100, cost }); };
+      if (core.includes('.')) {
+        const [a, b] = core.split('.');
+        add(+core, b.length <= 2 ? 0 : 2);
+        if (!unit && b.length >= 2) add(+(a + '.' + b.slice(0, -1)), b.length > 2 ? 0 : 1);
+      } else {
+        const D = core;
+        if (/^0\d/.test(D)) add(+('0.' + D.slice(1)), 0);
+        add(+D, /^0\d/.test(D) ? 3 : 0);
+        if (D.length >= 2) add(+(D.slice(0, -1) + '.' + D.slice(-1)), 1);
+        if (!unit && D.length >= 2 && /[9468]/.test(D.slice(-1))) { const d = D.slice(0, -1); add(+d, 1.5); if (d.length >= 2) add(+(d.slice(0, -1) + '.' + d.slice(-1)), 1.2); }
+        if (D.length >= 3) add(+(D.slice(0, -2) + '.' + D.slice(-2)), 2.5);
+      }
+      return out.sort((x, y) => x.cost - y.cost);
+    }
+    function energyCheck(n) {
+      if (n.kcal == null || n.fat == null || n.carbs == null || n.protein == null) return null;
+      const calc = 9 * n.fat + 4 * n.carbs + 4 * n.protein + 2 * (n.fibre || 0);
+      return { calc: Math.round(calc), ok: Math.abs(calc - n.kcal) <= Math.max(15, 0.12 * n.kcal) };
+    }
+    function parseNutrition(text) {
+      const lines = String(text).split('\n').map(l => l.trim()).filter(Boolean);
+      const out = { doubt: [] }; let i0 = -1;
+      const kcalRe = /(\d{1,4}(?:[.,]\d)?)\s*(?:kcal|kca[l1I|i]?|keal|kcai|ккал)/i, kjRe = /(\d{2,4})\s*(?:k[jJ3]|кдж)(?![a-z])/i;
+      lines.forEach((l, i) => {
+        const a = kcalRe.exec(l), b = kjRe.exec(l);
+        if ((a || b) && i0 < 0 && !/2000|8400/.test(l)) { i0 = i; if (a) out.kcal = +a[1].replace(',', '.'); if (b) out.kj = +b[1]; }
+        if (out.portion == null) for (const p of [...l.matchAll(/\/\s*(\d{1,3})\s*(g|q|ml|гр?|мл)/gi), ...l.matchAll(/(?:порци[яи]|per|serving|по)\s*(?:от\s*)?(\d{1,3})\s*(g|ml|г|мл)/gi)])
+          if (+p[1] !== 100 && +p[1] > 0) { out.portion = +p[1]; break; }
+      });
+      if (out.kcal == null && out.kj) out.kcal = Math.round(out.kj / 4.184);
+      if (i0 < 0) i0 = lines.findIndex(l => /100/.test(l));
+      const r = out.portion ? out.portion / 100 : null;
+      const rows = [];
+      for (let i = i0 + 1; i < lines.length; i++) {
+        const l = lines[i];
+        if (/8400|2000\s*k|reference|референт|\bRI\b/i.test(l)) break;
+        const toks = l.split(/\s+/).filter(t => /\d/.test(t) && !/%|\/|kj|kcal|keal/i.test(t));
+        if (!toks.length) continue;
+        let key = null; for (const k of ['sat', 'sugar', 'fibre', 'protein', 'salt', 'carbs', 'fat']) if (NUT_WORDS[k].test(l)) { key = k; break; }
+        const c1 = numCands(toks[0]), c2 = toks[1] ? numCands(toks[1]) : [];
+        let best = null;
+        if (r && c2.length && !(c1[0] && c1[0].v > 0 && c1[0].v * r < 0.3 && c1[0].cost === 0)) {
+          for (const a of c1) for (const b of c2) { const err = Math.abs(b.v - a.v * r) / Math.max(a.v * r, 0.1); const sc = err * 4 + a.cost * 0.3 + b.cost * 0.3; if (!best || sc < best.sc) best = { v: a.v, sc, err }; }
+          if (!best || best.err > 0.25) { const b = c2.find(x => x.v / r <= 100 && x.v > 0); const derived = b ? Math.round(b.v / r * 10) / 10 : null; best = { v: c1[0] && c1[0].v > 0 ? c1[0].v : derived != null ? derived : (c1[0] ? c1[0].v : null), alt: derived, doubt: true }; }
+        } else best = c1[0] ? { v: c1[0].v, doubt: c1[0].cost > 1 } : null;
+        if (best && best.v != null) rows.push({ v: best.v, alt: best.alt, key, doubt: !!best.doubt });
+      }
+      const keyed = rows.filter(x => x.key);
+      let order = rows.length === 7 ? NUT_ORDER7 : rows.length === 6 ? NUT_ORDER6 : null;
+      if (keyed.length >= 3 && new Set(keyed.map(x => x.key)).size === keyed.length) rows.forEach((x, i) => { const k = x.key || (order && order[i]); if (k && out[k] == null) { out[k] = x.v; if (x.doubt) out.doubt.push(k); } });
+      else if (order) rows.forEach((x, i) => { out[order[i]] = x.v; if (x.doubt) out.doubt.push(order[i]); });
+      else if (rows.length > 7) { [['fat', 0], ['sat', 1], ['protein', rows.length - 2], ['salt', rows.length - 1]].forEach(([k, i]) => { out[k] = rows[i].v; if (rows[i].doubt) out.doubt.push(k); }); }
+      const alts = {}; const at = (k, x) => { if (x && x.alt != null) alts[k] = x.alt; };
+      if (order && !(keyed.length >= 3)) rows.forEach((x, i) => at(order[i], x));
+      // If the energy does not add up, try the portion-column reading for the doubtful energy numbers.
+      const c0 = energyCheck(out);
+      if (c0 && !c0.ok) {
+        const ks = ['fat', 'carbs', 'protein', 'fibre'].filter(k => alts[k] != null);
+        let bestFix = null;
+        for (let mask = 1; mask < (1 << ks.length); mask++) {
+          const t = Object.assign({}, out); ks.forEach((k, j) => { if (mask & (1 << j)) t[k] = alts[k]; });
+          const c = energyCheck(t); if (c && c.ok && (!bestFix || Math.abs(c.calc - t.kcal) < bestFix.d)) bestFix = { t, d: Math.abs(c.calc - t.kcal) };
+        }
+        if (bestFix) ks.forEach(k => { out[k] = bestFix.t[k]; });
+      }
+      if (out.sat != null && out.fat != null && out.sat > out.fat) out.doubt.push('sat');
+      if (out.sugar != null && out.carbs != null && out.sugar > out.carbs) out.doubt.push('sugar');
+      out.check = energyCheck(out); out.rows = rows.length;
+      return out;
+    }
+
+    return { extractBulgarian, extractEnglish, readable, parseNutrition, energyCheck, numCands, analyseText, analyseProduct, summary, kidSummary, flagsFor, additiveInfo, level, cubes, fmt, LEVEL_WORD, LIMITS, suggest, avoidHits, AVOID_RULES, offAdditive, SRC, ING };
   }
 
   const api = { createEngine };
