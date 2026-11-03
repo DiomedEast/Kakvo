@@ -380,9 +380,27 @@
   }
 
   let lastPhoto = null;
+  function rotateCanvas(src, deg) {
+    const c = document.createElement('canvas'); const side = deg % 180 !== 0;
+    c.width = side ? src.height : src.width; c.height = side ? src.width : src.height;
+    const x = c.getContext('2d'); x.translate(c.width / 2, c.height / 2); x.rotate(deg * Math.PI / 180); x.drawImage(src, -src.width / 2, -src.height / 2);
+    return c;
+  }
+  /* Is the text running up/down (photo taken sideways)? Text lines make the row profile of edges jumpy;
+     sideways text makes the column profile jumpy instead. */
+  function textIsVertical(src) {
+    const s = Math.min(1, 600 / Math.max(src.width, src.height)); const w = Math.round(src.width * s), h = Math.round(src.height * s);
+    const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.drawImage(src, 0, 0, w, h);
+    const d = x.getImageData(0, 0, w, h).data; const g = new Float32Array(w * h); for (let i = 0; i < w * h; i++) g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+    const rows = new Float32Array(h), cols = new Float32Array(w);
+    for (let y = 1; y < h - 1; y++) for (let xx = 1; xx < w - 1; xx++) { const i = y * w + xx; if (Math.abs(g[i + 1] - g[i - 1]) + Math.abs(g[i + w] - g[i - w]) > 60) { rows[y]++; cols[xx]++; } }
+    const jumpy = a => { let m = 0; for (const v of a) m += v; m /= a.length; let t = 0; for (let i = 1; i < a.length; i++) t += Math.abs(a[i] - a[i - 1]); return t / a.length / (m || 1); };
+    return jumpy(cols) > jumpy(rows) * 1.4;
+  }
   async function handlePhoto(file) {
     view(`<div class="center"><div class="spinner" aria-hidden="true"></div><p>Отваряме снимката…</p></div>`);
     try { lastPhoto = await loadImage(file); } catch (e) { toast('Не успяхме да отворим снимката.'); return go('#/photo'); }
+    if (textIsVertical(lastPhoto)) lastPhoto = rotateCanvas(lastPhoto, -90);
     viewCrop();
   }
 
@@ -393,7 +411,8 @@
       <div class="wrap" style="gap:12px"><p style="margin:0;color:var(--muted)">${photoMode === 'nut' ? 'Плъзни пръст, за да оградиш <b>колоните с числата</b> (от „на 100 г“ надолу до солта). Надписите не са нужни.' : 'Плъзни пръст върху снимката, за да оградиш само <b>българския</b> състав (от „Съставки“ до края). Така четем по-точно.'}</p>
       <div id="cropwrap" style="position:relative;touch-action:none;border-radius:14px;overflow:hidden;background:#000"><canvas id="cropview" style="display:block;width:100%;height:auto"></canvas><div id="box" style="position:absolute;border:3px solid var(--amber);background:rgba(242,179,94,0.15);border-radius:6px;display:none;pointer-events:none"></div></div>
       <button class="btn green" id="readbox" disabled style="opacity:0.5">${photoMode === 'nut' ? 'Прочети оградените числа' : 'Прочети оградения текст'}</button>
-      <button class="btn outline" id="readall">Прочети цялата снимка</button></div><div class="foot"></div>`);
+      <div class="grid2"><button class="btn outline" id="readall" style="min-height:46px;font-size:14px">Прочети цялата снимка</button><button class="btn outline" id="rot" style="min-height:46px;font-size:14px">↻ Завърти снимката</button></div>
+      <p style="margin:0;font-size:14px;color:var(--muted)">Текстът трябва да е изправен. Ако е настрани или наопаки, натисни „Завърти“.</p></div><div class="foot"></div>`);
     const cv = document.getElementById('cropview'); const wrap = document.getElementById('cropwrap'); const boxEl = document.getElementById('box');
     const maxW = 1000; const sc = Math.min(1, maxW / lastPhoto.width);
     cv.width = Math.round(lastPhoto.width * sc); cv.height = Math.round(lastPhoto.height * sc);
@@ -412,6 +431,7 @@
     wrap.addEventListener('pointerup', e => { if (a) { b = pt(e); draw(); } });
     document.getElementById('readbox').addEventListener('click', () => sel && runOcr(sel));
     document.getElementById('readall').addEventListener('click', () => runOcr(null));
+    document.getElementById('rot').addEventListener('click', () => { lastPhoto = rotateCanvas(lastPhoto, 90); viewCrop(); });
   }
 
   async function runOcr(box, lang) {
@@ -425,7 +445,14 @@
       if (!window.Tesseract) await loadScript(CFG.TESSERACT_URL);
       const worker = await Tesseract.createWorker(lang, 1, { logger: m => { const el = document.getElementById('ocrmsg'); if (el && m.status === 'recognizing text') el.textContent = what + ' ' + Math.round(m.progress * 100) + '%'; } });
       await worker.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1' });
-      const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
+      let { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
+      // Upside-down photo: confidence collapses. Try once turned around and keep the better reading.
+      const conf = dt => { const ws = []; (dt.blocks || []).forEach(b => b.paragraphs.forEach(p => p.lines.forEach(l => l.words.forEach(w => { if (w.text.length > 1) ws.push(w.confidence); })))); return ws.length ? ws.reduce((a, b) => a + b, 0) / ws.length : 0; };
+      if (conf(data) < 60) {
+        const msg = document.getElementById('ocrmsg'); if (msg) msg.textContent = 'Опитваме и обърната снимка…';
+        const flip = await worker.recognize(rotateCanvas(canvas, 180), {}, { text: true, blocks: true });
+        if (conf(flip.data) > conf(data) + 5) data = flip.data;
+      }
       await worker.terminate();
       const words = []; const lines = [];
       (data.blocks || []).forEach(b => b.paragraphs.forEach(p => p.lines.forEach(l => { lines.push(l.words.map(w => w.text).join(' ')); l.words.forEach(w => words.push({ t: w.text, c: w.confidence })); words.push({ t: '\n' }); })));
