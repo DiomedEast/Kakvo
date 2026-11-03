@@ -608,7 +608,7 @@
     const recent = store.get('history', []).slice(0, 3);
     const pillFor = h => h.warn ? '<span class="pill p-r">за внимание</span>' : h.cubes != null ? `<span class="pill p-o">${fmt(h.cubes)} ${h.cubes === 1 ? 'бучка' : 'бучки'}</span>` : `<span class="pill p-g">${h.nAdd} добавки</span>`;
     view(`<div class="scan"><div class="top">${LOGO}<a class="rbtn darkbtn" href="#/history" aria-label="История">${icon('history')}</a></div>
-      <div class="viewer" id="viewer"><video id="video" playsinline muted></video><div class="frame" aria-hidden="true"><i></i><i></i><i></i><i></i><span class="line"></span></div><p class="hint" id="hint">Насочи камерата към баркода на продукта</p></div>
+      <div class="viewer" id="viewer"><video id="video" playsinline muted></video><div class="frame" aria-hidden="true"><i></i><i></i><i></i><i></i><span class="line"></span></div><p class="hint" id="hint">Насочи камерата към баркода. Дръж телефона на 15–20 см. Докосни, за да фокусира.</p></div>
       <div class="sheet">
         <form class="manual" id="manual"><label for="code" class="sr">Баркод</label><input id="code" inputmode="numeric" autocomplete="off" placeholder="или въведи баркода"><button type="submit">Търси</button></form>
         <a class="btn outline" href="#/photo">${icon('camera')}Няма баркод? Снимай състава</a>
@@ -622,6 +622,32 @@
     startCamera();
   }
 
+  /* Ask for a sharp stream (browsers default to 640×480), continuous autofocus, and a little zoom
+     so the phone can be held further away, where its lens can focus. */
+  async function openCamera() {
+    const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    const track = st.getVideoTracks()[0];
+    const caps = track && track.getCapabilities ? track.getCapabilities() : {};
+    const adv = {};
+    if (caps.focusMode && caps.focusMode.includes('continuous')) adv.focusMode = 'continuous';
+    if (caps.zoom && caps.zoom.max >= 1.5) adv.zoom = Math.min(caps.zoom.max, 2);
+    if (Object.keys(adv).length) { try { await track.applyConstraints({ advanced: [adv] }); } catch (e) { /* not supported */ } }
+    return { st, track, caps };
+  }
+  function wireCameraControls(track, caps) {
+    const viewer = document.getElementById('viewer'); if (!viewer || !track) return;
+    // Tap to refocus
+    viewer.addEventListener('click', async e => {
+      if (e.target.closest('button')) return;
+      if (caps.focusMode && caps.focusMode.includes('single-shot')) { try { await track.applyConstraints({ advanced: [{ focusMode: 'single-shot' }] }); setTimeout(() => track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {}), 1200); } catch (err) { /* ignore */ } }
+    });
+    if (caps.torch) {
+      const b = document.createElement('button'); b.className = 'rbtn darkbtn torch'; b.type = 'button'; b.setAttribute('aria-label', 'Фенерче'); b.textContent = '💡';
+      let on = false; b.addEventListener('click', async () => { on = !on; try { await track.applyConstraints({ advanced: [{ torch: on }] }); b.classList.toggle('on', on); } catch (err) { /* ignore */ } });
+      viewer.appendChild(b);
+    }
+  }
+
   async function startCamera() {
     const video = document.getElementById('video'); const hint = document.getElementById('hint');
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { hint.textContent = 'Камерата не е достъпна тук. Въведи баркода отдолу.'; return; }
@@ -630,9 +656,9 @@
     if ('BarcodeDetector' in window) { try { const sup = await BarcodeDetector.getSupportedFormats(); native = formats.some(f => sup.includes(f)); } catch (e) { native = false; } }
     try {
       if (native) {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+        const cam = await openCamera(); stream = cam.st;
         if (!document.getElementById('video')) return stopCamera();
-        video.srcObject = stream; await video.play();
+        video.srcObject = stream; await video.play(); wireCameraControls(cam.track, cam.caps);
         const det = new BarcodeDetector({ formats });
         scanTimer = setInterval(async () => {
           if (video.readyState < 2) return;
@@ -642,7 +668,10 @@
         if (!window.ZXingBrowser) await loadScript('vendor/zxing-browser.min.js');
         if (!document.getElementById('video')) return;
         const reader = new ZXingBrowser.BrowserMultiFormatReader();
-        zxingControls = await reader.decodeFromConstraints({ video: { facingMode: 'environment' }, audio: false }, video, (result) => {
+        const cam = await openCamera(); stream = cam.st;
+        if (!document.getElementById('video')) return stopCamera();
+        wireCameraControls(cam.track, cam.caps);
+        zxingControls = await reader.decodeFromStream(stream, video, (result) => {
           if (result) { const t = result.getText(); if (validCode(t)) found(t); }
         });
       }
