@@ -96,6 +96,14 @@ h2 { font-weight: 800; font-size: 19px; letter-spacing: -0.01em; display: flex; 
 .addrow.warn .code { background: var(--redbg); color: var(--red); }
 .addrow b { display: block; }
 .addrow small { display: block; font-size: 14px; color: var(--muted); }
+.addrow small.al { color: var(--org); font-weight: 600; margin-top: 2px; }
+.addrow .code.grp { font-size: 11.5px; color: var(--ink); }
+.addrow .code.g-grain { background: #F3EBD9; } .addrow .code.g-sugar { background: var(--orgbg); } .addrow .code.g-fat, .addrow .code.g-palm, .addrow .code.g-trans { background: var(--butter); }
+.addrow .code.g-cocoa { background: #EFE6E1; } .addrow .code.g-dairy { background: #E8F0FA; } .addrow .code.g-other { background: var(--soft); }
+.head .chip { color: var(--ink); }
+.addrow.unk .code { background: #FFFFFF; border: 1.5px dashed var(--input); color: var(--muted); }
+.addrow.unk b { color: var(--muted); }
+.flag.info { background: var(--soft); }
 .flag { border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; background: var(--orgbg); }
 .flag.warn { background: var(--redbg); }
 .flag h3 { font-size: 16px; font-weight: 800; }

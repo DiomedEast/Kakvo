@@ -4,7 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const { createEngine } = require('../js/engine.js');
 const DB = require('../data/library.json');
-const E = createEngine(DB);
+const EX = require('../data/explain.json');
+const E = createEngine(DB, EX);
 let n = 0; const t = (name, fn) => { fn(); n++; console.log('ok', name); };
 
 t('E-numbers in Cyrillic and Latin, sub-types', () => {
@@ -25,6 +26,27 @@ t('flags: children colours, aspartame, sugar in first three', () => {
   const r = E.analyseText('Вода, захар, оцветители: Е110, Е129, подсладител: аспартам');
   const ids = E.flagsFor(r).map(f => f.id);
   assert.ok(ids.includes('south') && ids.includes('e951') && ids.includes('sugar3'), ids.join());
+});
+t('every ingredient explained in label order (Bulgarian and French labels)', () => {
+  const want = ['ing:wheat-flour', 'ing:sugar', 'ing:butterfat', 'add:E322', 'ing:salt', 'add:E500', 'add:E503'];
+  for (const txt of ['Съставки: пшенично брашно, захар, безводна млечна мазнина, емулгатор: соеви лецитини, готварска сол, набухватели: натриеви карбонати, амониеви карбонати.',
+    "Ingrédients : farine de blé, sucre, matière grasse laitière anhydre, émulsifiant : lécithines de soja, sel de table, poudres à lever : carbonates de sodium, carbonates d’ammonium."]) {
+    const r = E.analyseText(txt); const it = E.items(r);
+    assert.deepStrictEqual(it.map(x => x.k + ':' + (x.t || x.code)), want);
+    assert.strictEqual(r.unk.length, 0);
+    assert.ok(it.every(x => x.what), 'each item has a "what it is" line');
+    assert.strictEqual(it[3].allergen, 'соя');
+    assert.deepStrictEqual(E.allergens(r).length, 3);
+  }
+  assert.ok(E.ingredientInfo('butterfat').notes.some(n => /99,8%/.test(n.text) && n.src.length));
+  assert.ok(E.ingredientInfo('salt').notes.some(n => /5 г/.test(n.text)));
+  assert.strictEqual(E.additiveInfo('E322', 'слънчогледов лецитин').allergen, null);
+});
+t('explanation data is consistent (sources exist, tags exist)', () => {
+  for (const [sec, keys] of [['i', Object.keys(EX.i)], ['a', Object.keys(EX.a)]]) keys.forEach(k => {
+    assert.ok(sec === 'i' ? E.ING.has(k) : DB.a[k], k);
+    (EX[sec][k].n || []).forEach(n => { const o = typeof n === 'string' ? EX.notes[n] : n; assert.ok(o && o.s.every(s => EX.src[s]), k); });
+  });
 });
 t('OFF additive tags', () => {
   assert.strictEqual(E.offAdditive('en:e500ii'), 'E500');

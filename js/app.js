@@ -133,22 +133,35 @@
   function groupsHtml(res) {
     const LABEL = { grain: 'Зърно', sugar: 'Захари', fat: 'Мазнини', palm: 'Мазнини', trans: 'Мазнини', cocoa: 'Какао', dairy: 'Мляко', other: 'Други' };
     const groups = {};
-    for (const x of res.ing.values()) { const g = x.g === 'palm' || x.g === 'trans' ? 'fat' : x.g; (groups[g] = groups[g] || []).push(x.bg); }
+    for (const x of res.ing.values()) { const g = x.g === 'palm' || x.g === 'trans' ? 'fat' : x.g; (groups[g] = groups[g] || []).push(E.ingredientInfo(x.t).name); }
     const order = ['grain', 'sugar', 'fat', 'cocoa', 'dairy', 'other'];
     const chips = order.filter(g => groups[g]).map(g => `<span class="chip g-${g}"><span class="dot"></span>${LABEL[g]}: ${esc(groups[g].slice(0, 4).join(', '))}${groups[g].length > 4 ? ' и още ' + (groups[g].length - 4) : ''}</span>`).join('');
     const unk = res.unk.length ? `<span class="chip g-unk">Още ${res.unk.length} без обяснение</span>` : '';
     return chips || unk ? `<div style="display:flex;flex-direction:column;gap:10px"><h2>Съставът по групи</h2><div class="chips">${chips}${unk}</div></div>` : '';
   }
 
-  function additivesHtml(res, back) {
-    if (!res.add.size) return '';
-    const rows = [...res.add.keys()].sort((a, b) => !!E.additiveInfo(b).flag - !!E.additiveInfo(a).flag).map(c => {
-      const a = E.additiveInfo(c);
-      const line = a.roles[0] ? a.roles[0].split(':').slice(1).join(':').trim() || a.roles[0] : (a.known ? 'Ролята ѝ още не е описана в Kakvo.' : 'Тази добавка още не е в нашата база.');
-      const cap = a.name.charAt(0).toUpperCase() + a.name.slice(1);
-      return `<a class="addrow ${a.flag && a.flag.level === 'warn' ? 'warn' : ''}" href="#/a/${encodeURIComponent(c)}?from=${encodeURIComponent(back)}"><span class="code">${c === 'E14X' ? 'E14xx' : c}</span><span><b>${esc(cap)}</b><small>${esc(line.charAt(0).toUpperCase() + line.slice(1))}</small></span>${icon('chev', 18, 2)}</a>`;
+  const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+  const firstSentence = s => (s || '').split(/(?<=[.!?])\s+(?=[А-ЯA-Z„])/)[0];
+  const roleLine = a => a.roles[0] ? (a.roles[0].split(':').slice(1).join(':').trim() || a.roles[0]) : (a.known ? 'Ролята ѝ още не е описана в Kakvo.' : 'Тази добавка още не е в нашата база.');
+
+  /* Every ingredient and additive in label order, each with one plain line; tap for the full explanation. */
+  function itemsHtml(res, back) {
+    const list = E.items(res);
+    if (!list.length) return '';
+    const from = encodeURIComponent(back || '#/');
+    const rows = list.map(x => {
+      if (x.k === 'unk') return `<div class="addrow unk"><span class="code">?</span><span><b>${esc(cap(x.name))}</b><small>Още нямаме обяснение за тази съставка.</small></span><span></span></div>`;
+      const al = x.allergen ? `<small class="al">Алерген: ${esc(x.allergen)}</small>` : '';
+      if (x.k === 'add') {
+        const c = x.code;
+        return `<a class="addrow ${x.flag && x.flag.level === 'warn' ? 'warn' : ''}" href="#/a/${encodeURIComponent(c)}?from=${from}${x.ctx ? '&c=' + encodeURIComponent(x.ctx) : ''}"><span class="code">${c === 'E14X' ? 'E14xx' : c}</span><span><b>${esc(cap(x.name))}</b><small>${esc(cap(roleLine(x)))}</small>${al}</span>${icon('chev', 18, 2)}</a>`;
+      }
+      return `<a class="addrow" href="#/i/${encodeURIComponent(x.t)}?from=${from}"><span class="code grp g-${x.g}">${esc(x.group)}</span><span><b>${esc(cap(x.name))}</b><small>${esc(x.what ? firstSentence(x.what) : 'Още нямаме подробно обяснение.')}</small>${al}</span>${icon('chev', 18, 2)}</a>`;
     }).join('');
-    return `<div style="display:flex;flex-direction:column"><h2>Добавки (${res.add.size})</h2>${rows}</div>`;
+    const als = E.allergens(res);
+    const alNote = als.length ? `<div class="note">Разпознахме алергени: <b>${esc(als.join(', '))}</b>. На етикета те трябва да са откроени, например с удебелен шрифт. При алергия винаги проверявай етикета.</div>` : '';
+    return `<div style="display:flex;flex-direction:column;gap:6px"><h2>Какво ядеш: съставка по съставка</h2>
+      <span style="font-size:14px;color:var(--muted)">По реда на етикета: първата съставка е най-много. Докосни, за да видиш повече.</span>${alNote}<div style="display:flex;flex-direction:column">${rows}</div></div>`;
   }
 
   function labelHtml(text, res) {
@@ -187,7 +200,7 @@
       ${calcHtml(nut, kind)}
       ${flags.length ? '<div style="display:flex;flex-direction:column;gap:10px"><h2>Важно да знаеш</h2>' + flags.map(flagHtml).join('') + '</div>' : ''}
       ${groupsHtml(res)}
-      ${additivesHtml(res, opts.back)}
+      ${itemsHtml(res, opts.back)}
       ${labelHtml(opts.text, res)}
       ${all}
       <button class="btn dark" id="share2">${icon('share')}Сподели със семейството</button>
@@ -250,9 +263,14 @@
       <a class="btn dark" href="#/support">Виж какво получаваш</a></div></div>`;
   }
 
-  function viewAdditive(code, back) {
-    const a = E.additiveInfo(code);
-    const roles = a.roles.length ? a.roles.map(r => `<p class="lead" style="margin:0">${esc(r)}</p>`).join('') : `<p class="lead">${a.known ? 'Ролята ѝ още не е описана в Kakvo.' : 'Тази добавка още не е в нашата база.'}</p>`;
+  const noteHtml = n => `<div class="flag ${n.allergen ? '' : 'info'}"><h3>${n.allergen ? 'Алерген' : 'Добре е да знаеш'}</h3><p>${esc(n.text)}</p>${n.src && n.src.length ? srcLinks(n.src) : ''}</div>`;
+
+  function viewAdditive(code, back, ctx) {
+    const a = E.additiveInfo(code, ctx || '');
+    const roles = (a.what ? `<h2>Какво е</h2><p class="lead" style="margin:0">${esc(a.what)}</p>${a.variant ? `<p style="margin:0;font-weight:600">${esc(a.variant)}</p>` : ''}<h2>Какво прави в храната</h2>` : '')
+      + (a.roles.length ? a.roles.map(r => `<p class="${a.what ? '' : 'lead'}" style="margin:0;${a.what ? 'font-size:16px;line-height:1.5' : ''}">${esc(r)}</p>`).join('') : `<p class="lead">${a.known ? 'Ролята ѝ още не е описана в Kakvo.' : 'Тази добавка още не е в нашата база.'}</p>`)
+      + (a.why ? `<p style="margin:0;font-size:16px;line-height:1.5">${esc(a.why)}</p>` : '')
+      + a.notes.map(noteHtml).join('');
     view(`<header class="head">${LEAF}<div class="row"><a class="rbtn" href="${esc(back || '#/')}" aria-label="Назад">${icon('back')}</a>${LOGO}<span style="width:44px"></span></div>
       <span style="align-self:flex-start;font-weight:800;font-size:15px;background:#FFFFFF;color:var(--g);padding:6px 12px;border-radius:10px">${code === 'E14X' ? 'E14xx' : esc(code)}</span>
       <h1 style="font-weight:900;font-size:30px;line-height:1.05">${esc(a.name.charAt(0).toUpperCase() + a.name.slice(1))}</h1>${a.en ? `<div class="meta">${esc(a.en)}</div>` : ''}</header>
@@ -260,6 +278,21 @@
       ${a.pct != null ? `<div class="card" style="flex-direction:row;align-items:baseline;gap:8px"><span style="font-family:var(--display);font-weight:900;font-size:24px">${a.pct >= 1 ? Math.round(a.pct) + '%' : '&lt;1%'}</span><span style="font-size:15px">от продуктите със състав в България я съдържат (данни Open Food Facts).</span></div>` : ''}
       ${a.flag ? flagHtml(a.flag) : ''}
       <div class="note">Всяка добавка с Е-номер е оценена и разрешена в ЕС за определени храни и количества. Kakvo показва предупреждения само когато има официален източник.</div>
+      </div>${FOOT()}`);
+  }
+
+  function viewIngredient(tag, back) {
+    const x = E.ingredientInfo(tag);
+    if (!x) return go(back || '#/');
+    view(`<header class="head">${LEAF}<div class="row"><a class="rbtn" href="${esc(back || '#/')}" aria-label="Назад">${icon('back')}</a>${LOGO}<span style="width:44px"></span></div>
+      <span class="chip g-${x.g}" style="align-self:flex-start"><span class="dot"></span>${esc(x.group)}</span>
+      <h1 style="font-weight:900;font-size:30px;line-height:1.05">${esc(cap(x.name))}</h1>${x.en ? `<div class="meta">${esc(x.en)}</div>` : ''}</header>
+      <div class="wrap">
+      ${x.what ? `<h2>Какво е</h2><p class="lead" style="margin:0">${esc(x.what)}</p>` : `<p class="lead">Още нямаме подробно обяснение за тази съставка. Тя е от групата „${esc(x.group.toLowerCase())}“.</p>`}
+      ${x.why ? `<h2>Защо е в храната</h2><p style="margin:0;font-size:16px;line-height:1.5">${esc(x.why)}</p>` : ''}
+      ${x.notes.map(noteHtml).join('')}
+      ${x.pct != null ? `<div class="card" style="flex-direction:row;align-items:baseline;gap:8px"><span style="font-family:var(--display);font-weight:900;font-size:24px">${x.pct >= 1 ? Math.round(x.pct) + '%' : '&lt;1%'}</span><span style="font-size:15px">от продуктите със състав в България я съдържат (данни Open Food Facts).</span></div>` : ''}
+      <div class="note">Обясненията на Kakvo казват какво е съставката и защо е там. Предупреждения показваме само с официален източник.</div>
       </div>${FOOT()}`);
   }
 
@@ -810,7 +843,8 @@
     if (path === '/' || path === '') return viewScan();
     if ((m = /^\/p\/(\d{6,14})$/.exec(path))) return viewProduct(m[1], false);
     if ((m = /^\/k\/(\d{6,14})$/.exec(path))) return viewProduct(m[1], true);
-    if ((m = /^\/a\/([A-Z0-9]+)$/.exec(path))) return viewAdditive(m[1], qs.get('from'));
+    if ((m = /^\/a\/([A-Z0-9]+)$/.exec(path))) return viewAdditive(m[1], qs.get('from'), qs.get('c'));
+    if ((m = /^\/i\/([a-z0-9-]+)$/.exec(path))) return viewIngredient(m[1], qs.get('from'));
     if ((m = /^\/notfound\/(\d+)$/.exec(path))) return viewNotFound(m[1]);
     if (path === '/photo') return viewPhoto(qs.get('m'), qs.get('pair'));
     if (path === '/n') return viewNut();
@@ -826,7 +860,10 @@
 
   async function boot() {
     try {
-      const r = await fetch('data/library.json'); DB = await r.json(); E = KakvoEngine.createEngine(DB);
+      const [r, x] = await Promise.all([fetch('data/library.json'), fetch('data/explain.json').catch(() => null)]);
+      DB = await r.json();
+      let EX = null; try { EX = x && x.ok ? await x.json() : null; } catch (e) { EX = null; }
+      E = KakvoEngine.createEngine(DB, EX);
     } catch (e) { app.innerHTML = '<div class="center"><h1>Kakvo не се зареди</h1><p>Провери интернета и опитай пак.</p></div>'; return; }
     window.addEventListener('hashchange', route);
     route();

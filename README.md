@@ -6,7 +6,8 @@ A free web app (PWA) for Bulgaria. Plain HTML, CSS and JavaScript, no build step
 ## What works in v0.1
 - **Barcode scan** with the phone camera (built-in reader on Android Chrome, bundled ZXing reader on iPhone), or type the barcode.
 - **Product lookup** from Open Food Facts, explained with the Kakvo ingredient library (`data/library.json`).
-- **Plain summary**, sugar/saturated fat/salt levels (UK front-of-pack criteria), sugar cubes, ingredient groups, every additive explained, official warnings with links.
+- **Plain summary**, sugar/saturated fat/salt levels (UK front-of-pack criteria), sugar cubes, ingredient groups, official warnings with links.
+- **Ingredient by ingredient**: every ingredient and additive in label order, what it is, why it's in the food, allergens, and sourced notes (`data/explain.json`). Bulgarian, English and French label wording.
 - **Not in the database?** Photograph the ingredients (blur check, text reading with unsure words marked and fix suggestions) or type them in.
 - **History** on the phone (last 20 free), **sharing** (link, or an Instagram Story image), **support page** (€19.99 / year).
 - **Supporter features** (child mode, read aloud, per-portion sugar, "how much did I eat", profiles with an avoid list, full history) are built and locked behind the supporter flag.
@@ -36,6 +37,7 @@ Settings → Pages → Source: *Deploy from a branch* → `main` / `(root)`. The
 - `vendor/zxing-browser.min.js`: ZXing for the browser, MIT (see `vendor/zxing-browser.LICENSE`).
 - Text reading: Tesseract.js 7.0.0 (Apache-2.0), loaded from jsDelivr only when a photo is taken.
 - Fonts: Geologica and Onest from Google Fonts (SIL Open Font License).
+- `data/explain.json` is Kakvo's own text (BonbelleGroup); its notes cite EU regulations, EFSA, WHO and Codex Alimentarius.
 - Warnings in the app cite their sources: EU Regulations 1333/2008, 1169/2011, 2022/63, 2019/649; EFSA; WHO.
 
 Kakvo explains, it does not give medical advice.

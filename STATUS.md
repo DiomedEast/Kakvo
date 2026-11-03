@@ -1,6 +1,6 @@
 # Kakvo — project status (handoff note)
 
-Last updated: 3 November 2026, version 0.1.5. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
+Last updated: 3 November 2026, version 0.1.6. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
 
 ## What Kakvo is
 A free web app (PWA) for Bulgaria that explains what is in a food product in plain Bulgarian. Owner: Mo, sold by BonbelleGroup.
@@ -9,11 +9,18 @@ A free web app (PWA) for Bulgaria that explains what is in a food product in pla
 - Look: "Fresh market v2" — green #246B2A, fonts Geologica (headings) and Onest (text), 3D sugar cubes.
 
 ## How it works
-- Static site, no build step: `index.html`, `css/app.css`, `js/config.js`, `js/engine.js` (logic, also runs in node), `js/app.js` (views, hash routes), `data/library.json` (241 additives, 504 ingredients, from Mo's spreadsheet; ODbL), `sw.js` (bump `CACHE` on every release), `manifest.webmanifest`.
+- Static site, no build step: `index.html`, `css/app.css`, `js/config.js`, `js/engine.js` (logic, also runs in node), `js/app.js` (views, hash routes), `data/library.json` (241 additives, 504 ingredients, from Mo's spreadsheet; ODbL), `data/explain.json` (Kakvo's own plain-Bulgarian explanations, see below), `sw.js` (bump `CACHE` on every release), `manifest.webmanifest`.
 - Barcode: native BarcodeDetector, else bundled `vendor/zxing-browser.min.js`. Camera asks for 1920×1080, continuous focus, 2× zoom, torch button. Product data from Open Food Facts API v2.
 - Photo flow: ingredients photo → auto-rotate if sideways → user frames the Bulgarian text → Tesseract.js 7 (`bul`, page mode 6) → keep only the Bulgarian part (`extractBulgarian`) → user checks text → **asks for the nutrition-table photo (or skip)** → frame the numbers → Tesseract `eng` → `parseNutrition` (EU row order Annex XV, portion-column cross-check, energy check Annex XIV) → user confirms numbers (unsure ones in orange) → one combined result.
 - English ingredient lists are recognised; "read in English" fallback if no "Съставки" is found.
 - If too little is recognised, the result says "Не успяхме да разчетем…" instead of a false all-clear.
+
+## Ingredient explanations (v0.1.6)
+- Result screen has "Какво ядеш: съставка по съставка": every ingredient and additive in label order, one plain line each, allergen marked; tap → `#/i/<tag>` (ingredient) or `#/a/<code>` (additive) with "Какво е", "Защо е в храната", allergen box and "Добре е да знаеш" notes with sources.
+- Content lives in `data/explain.json`: 127 ingredients + 51 additives (the most common in Bulgaria). Fields: `w` what it is, `j` why it's there, `x` allergen (Reg. 1169/2011 Annex II), `n` notes with sources, `b`/`fr`/`en` extra label spellings, `v` variants (e.g. soy vs sunflower lecithin).
+- Rule: plain descriptions need no source; any health/legal claim must be a note with an official source (EU regulations, EFSA, WHO, Codex). Sources used so far: Reg. 1169/2011, 1334/2008, 231/2012, 2023/2108; EFSA (lecithins 2017, nitrites 2017, palm-oil contaminants 2016); WHO (salt, sugars 2015); Codex CXS 280 (anhydrous milk fat).
+- French labels are recognised for the explained items and the usual role words ("émulsifiant", "poudres à lever"…). "готварска сол" is now recognised (was unknown before).
+- Not yet: kid-mode lines for ingredients, explanations for the remaining ~375 rarer ingredients and ~190 additives (they show "Още нямаме подробно обяснение").
 
 ## Paid plan (decided by Mo)
 €19,99/year, sold by BonbelleGroup. Paid: profiles + personal avoid list, sugar per portion, read aloud, child mode, "how much did I eat" calculator, "Без украси" mode, offline mode, early access to cosmetics, recipes.
@@ -21,7 +28,7 @@ Today the supporter flag is local only (`?supporter=1`), so it can be bypassed. 
 
 ## Tests
 - `node tests/engine.test.js` (add a folder of Open Food Facts JSON files as an argument for real-product tests).
-- Browser tests with Playwright: `tests/nut-e2e.js`, `tests/flow-e2e.js`, `tests/ing2-e2e.js`. They expect a local server on port 8765 and Tesseract files served locally (see the `route` block in each file). Real label photos in `tests/photos/`.
+- Browser tests with Playwright: `tests/nut-e2e.js`, `tests/flow-e2e.js`, `tests/ing2-e2e.js`, `tests/ing-explain-e2e.js` (typed BG + FR label, ingredient and additive pages; screenshots in /tmp/shots). They expect a local server on port 8765 and Tesseract files served locally (see the `route` block in each file). Real label photos in `tests/photos/`.
 
 ## Waiting on Mo / to check on a real phone
 - Retest photo reading and the new nutrition step on the phone.
@@ -29,6 +36,7 @@ Today the supporter flag is local only (`?supporter=1`), so it can be bypassed. 
 
 ## Next steps (not started)
 1. Payments: Stripe Payment Link from BonbelleGroup into `SUPPORT_URL`, then a server-side check of supporters.
-2. Offline cache, cosmetics, recipes, "Без украси" mode (one sourced fact per additive).
-3. WhatsApp link previews per product (needs a server).
-4. Trademark check for the name "Kakvo" (possible confusion with "Kakao").
+2. Explain the rest of the library (by frequency) and add kid-mode lines for ingredients.
+3. Offline cache, cosmetics, recipes, "Без украси" mode (one sourced fact per additive).
+4. WhatsApp link previews per product (needs a server).
+5. Trademark check for the name "Kakvo" (possible confusion with "Kakao").

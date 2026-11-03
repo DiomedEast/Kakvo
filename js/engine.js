@@ -77,20 +77,30 @@
     'фъстъци': '#peanut', 'фъстък': '#peanut', 'лешници': '#hazelnut', 'бадеми': '#almond',
     'растителни мазнини': '#vegetable-fat', 'растителни масла': '#vegetable-oil'
   };
-  const ROLE_LABEL = /^(емулгатор(и|ни соли)?|консервант(и)?|стабилизатор(и)?|сгъстител(и)?|оцветител(и)?|антиоксидант(и)?|подсладител(и)?|овлажнител(и)?|влагозадържащ(и)? агент(и)?|киселинен регулатор|киселинни регулатори|регулатор(и)? на киселинност(та)?|регулатор(и)? на киселинноста|набухвател(и)?|втасващ(и)? агент(и)?|агент(и)? за обработка на брашн[оа]|овкусител(и)?|желиращ(и)? агент(и)?|глазиращ(и)? агент(и)?|окислител(и)?|киселини|emulsifiers?|preservatives?|stabili[sz]ers?|thickeners?|colou?rs?|antioxidants?|sweeteners?|humectants?|acidity regulators?|raising agents?|flavou?r enhancers?|gelling agents?|glazing agents?|acids?)(?=\s|$)\s*/;
-  const NOISE = /^(съставки|състав|сьставки|ingredients|най добър до|партида|съхранение|условия на съхранение|производител|вносител|нетно количество|енергийна стойност|алергени|опаковано в защитна атмосфера|минимум|българия|ingredients|best before|store in|produced|packed in|net weight)(?=\s|$)/;
-  const LETTER = /[a-zа-я]/i;
+  const ROLE_LABEL = /^(емулгатор(и|ни соли)?|консервант(и)?|стабилизатор(и)?|сгъстител(и)?|оцветител(и)?|антиоксидант(и)?|подсладител(и)?|овлажнител(и)?|влагозадържащ(и)? агент(и)?|киселинен регулатор|киселинни регулатори|регулатор(и)? на киселинност(та)?|регулатор(и)? на киселинноста|набухвател(и)?|втасващ(и)? агент(и)?|агент(и)? за обработка на брашн[оа]|овкусител(и)?|желиращ(и)? агент(и)?|глазиращ(и)? агент(и)?|окислител(и)?|киселини|emulsifiers?|preservatives?|stabili[sz]ers?|thickeners?|colou?rs?|antioxidants?|sweeteners?|humectants?|acidity regulators?|raising agents?|flavou?r enhancers?|gelling agents?|glazing agents?|acids?|émulsifiants?|poudres? à lever|agents? levants?|conservateurs?|stabilisants?|épaississants?|gélifiants?|colorants?|antioxydants?|édulcorants?|correcteurs? d'acidité|acidifiants?|exhausteurs? de goût|humectants?|affermissants?|antiagglomérants?|agents? d'enrobage)(?=\s|$)\s*/;
+  const NOISE = /^(съставки|състав|сьставки|ingredients|най добър до|партида|съхранение|условия на съхранение|производител|вносител|нетно количество|енергийна стойност|алергени|опаковано в защитна атмосфера|минимум|българия|ingredients|ingrédients|best before|store in|produced|packed in|net weight)(?=\s|$)/;
+  const LETTER = /[a-zа-яà-ÿœ]/i;
   const SUFFIX = { 'а': 'A', 'б': 'B', 'с': 'C', 'ц': 'C', 'д': 'D', 'е': 'E', a: 'A', b: 'B', c: 'C', d: 'D', e: 'E' };
 
-  const norm = s => s.toLowerCase().replace(/ё/g, 'е').replace(/[“”„"«»*]/g, '').replace(/\s+/g, ' ').trim();
+  const norm = s => s.toLowerCase().replace(/ё/g, 'е').replace(/[’‘`]/g, "'").replace(/[“”„"«»*]/g, '').replace(/\s+/g, ' ').trim();
 
-  function createEngine(DB) {
+  /* Open Food Facts category tags that are a job title ("emulsifier"), not an ingredient. */
+  const ROLE_TAGS = new Set(['emulsifier', 'preservative', 'acidity-regulator', 'antioxidant', 'colour', 'stabiliser', 'raising-agent', 'acid', 'thickener', 'sweetener', 'flavour-enhancer', 'humectant', 'gelling-agent', 'anti-caking-agent', 'flour-treatment-agent', 'glazing-agent', 'firming-agent']);
+  /* Ingredient tags that are really an additive we already explain. */
+  const ING_TO_ADD = { 'soya-lecithin': 'E322', 'sunflower-lecithin': 'E322', 'rapeseed-lecithin': 'E322', 'modified-starch': 'E14X', 'modified-corn-starch': 'E14X' };
+
+  function createEngine(DB, EX) {
+    EX = EX || { src: {}, notes: {}, x: {}, i: {}, a: {} };
     const ING = new Map(), NAMES = new Map();
     DB.i.forEach(x => { ING.set(x.t, x); const k = norm(x.bg); if (!NAMES.has(k)) NAMES.set(k, { ing: x }); });
     Object.keys(DB.a).forEach(c => { NAMES.set(norm(DB.a[c].bg), { add: c }); });
     DB.i.forEach(x => { const k = x.en && norm(x.en); if (k && k.length >= 3 && !NAMES.has(k)) NAMES.set(k, { ing: x }); });
     Object.keys(DB.a).forEach(c => { const k = DB.a[c].en && norm(DB.a[c].en); if (k && !NAMES.has(k)) NAMES.set(k, { add: c }); });
     Object.keys(ALIAS).forEach(k => { const v = ALIAS[k]; NAMES.set(k, v[0] === '#' ? { ing: ING.get(v.slice(1)) } : { add: v }); });
+    /* Extra label spellings from the explanation file (Bulgarian, French, English). */
+    const extra = e => [e.nm, ...(e.b || []), ...(e.fr || []), ...(e.en || [])].filter(Boolean).map(norm);
+    Object.keys(EX.i).forEach(t => { const x = ING.get(t); if (x) extra(EX.i[t]).forEach(k => NAMES.set(k, { ing: x })); });
+    Object.keys(EX.a).forEach(c => { if (DB.a[c]) extra(EX.a[c]).forEach(k => NAMES.set(k, { add: c })); });
     for (const [k, v] of NAMES) if (!v.add && !v.ing) NAMES.delete(k);
     const NAME_KEYS = [...NAMES.keys()].filter(k => k.length >= 4).sort((a, b) => b.length - a.length);
 
@@ -128,7 +138,14 @@
       return null;
     }
 
-    function emptyResult() { return { spans: [], add: new Map(), ing: new Map(), unk: [], notes: new Set(), order: [] }; }
+    function emptyResult() { return { spans: [], add: new Map(), ing: new Map(), unk: [], notes: new Set(), order: [], seq: [] }; }
+    /* seq = everything on the label in label order: { k: 'ing', t } | { k: 'add', c } | { k: 'unk', s }. */
+    function pushSeq(res, item) {
+      if (item.k === 'ing' && ING_TO_ADD[item.t]) item = { k: 'add', c: ING_TO_ADD[item.t] };
+      if (item.k === 'ing' && ROLE_TAGS.has(item.t)) return;
+      if (item.k !== 'unk' && res.seq.some(x => x.k === item.k && (x.t || x.c) === (item.t || item.c))) return;
+      res.seq.push(item);
+    }
 
     /* Analyse free text (label photo, typed text, or the Bulgarian label text of a product). */
     function analyseText(text, res) {
@@ -149,10 +166,10 @@
         if (!s) continue;
         const codes = findCodes(s);
         const hits = codes.length ? codes.map(c => ({ add: c })) : lookup(s);
-        if (!hits) { res.unk.push(raw.trim()); span.kind = 'unk'; res.spans.push(span); continue; }
+        if (!hits) { res.unk.push(raw.trim()); pushSeq(res, { k: 'unk', s: raw.trim() }); span.kind = 'unk'; res.spans.push(span); continue; }
         for (const h of hits) {
-          if (h.add) { if (!res.add.has(h.add)) res.add.set(h.add, raw.trim()); span.kind = FLAGS[h.add] && FLAGS[h.add].level === 'warn' ? 'flag' : (span.kind === 'flag' ? 'flag' : 'add'); }
-          else { const x = h.ing; if (!res.ing.has(x.t)) res.ing.set(x.t, x); res.order.push(x); if (!span.kind) span.kind = x.g === 'sugar' ? 'sugar' : 'ing'; }
+          if (h.add) { if (!res.add.has(h.add)) res.add.set(h.add, raw.trim()); pushSeq(res, { k: 'add', c: h.add }); span.kind = FLAGS[h.add] && FLAGS[h.add].level === 'warn' ? 'flag' : (span.kind === 'flag' ? 'flag' : 'add'); }
+          else { const x = h.ing; if (!res.ing.has(x.t)) res.ing.set(x.t, x); res.order.push(x); pushSeq(res, { k: 'ing', t: x.t }); if (!span.kind) span.kind = x.g === 'sugar' ? 'sugar' : 'ing'; }
         }
         res.spans.push(span);
       }
@@ -173,15 +190,16 @@
       const res = emptyResult();
       const text = p.ingredients_text_bg || '';
       if (text) analyseText(text, res);
-      (p.additives_tags || []).forEach(t => { const c = offAdditive(t); if (c && !res.add.has(c)) res.add.set(c, c); });
       const walk = (list, top) => (list || []).forEach(it => {
         const tag = (it.id || '').replace(/^[a-z]{2}:/, '');
-        const x = ING.get(tag);
-        if (x) { if (!res.ing.has(x.t)) res.ing.set(x.t, x); if (top && !text) res.order.push(x); }
-        else if (top && !text && it.text && !/^en:e\d/.test(it.id || '')) res.unk.push(it.text);
+        const x = ING.get(tag); const c = /^en:e\d/.test(it.id || '') ? offAdditive(it.id) : null;
+        if (x) { if (!res.ing.has(x.t)) res.ing.set(x.t, x); if (top && !text) res.order.push(x); if (!text) pushSeq(res, { k: 'ing', t: x.t }); }
+        else if (c) { if (!text) { if (!res.add.has(c)) res.add.set(c, it.text || c); pushSeq(res, { k: 'add', c }); } }
+        else if (top && !text && it.text) { res.unk.push(it.text); pushSeq(res, { k: 'unk', s: it.text }); }
         walk(it.ingredients, false);
       });
       walk(p.ingredients, true);
+      (p.additives_tags || []).forEach(t => { const c = offAdditive(t); if (c) { if (!res.add.has(c)) res.add.set(c, c); pushSeq(res, { k: 'add', c }); } });
       res.text = text;
       return res;
     }
@@ -243,10 +261,46 @@
     /* Show the job an additive most often does in food first (e.g. lecithin: emulsifier before antioxidant). */
     const ROLE_ORDER = ['raising', 'emulsifier', 'thickener', 'sweetener', 'colour', 'preservative', 'flavour-enhancer', 'propellent-gas', 'acidity', 'stabiliser', 'humectant', 'antioxidant', 'coagulant', 'carrier', 'sequestrant'];
     const ranked = a => a ? a.f.slice().sort((x, y) => (ROLE_ORDER.indexOf(x) + 99) % 99 - (ROLE_ORDER.indexOf(y) + 99) % 99) : [];
-    function additiveInfo(code) {
-      const a = DB.a[code]; const f = ranked(a);
-      return { code, name: a ? a.bg : code, en: a ? a.en : '', roles: f.filter(x => ROLE[x]).map(x => ROLE[x]),
-        kid: f.map(x => KID_ROLE[x]).find(Boolean) || null, pct: a ? a.p : null, flag: FLAGS[code] || null, known: !!a };
+    /* Notes from the explanation file, with their sources resolved to { t, u }. */
+    const srcOf = keys => (keys || []).map(k => EX.src[k]).filter(Boolean);
+    const noteOf = n => { const o = typeof n === 'string' ? EX.notes[n] : n; return o ? { text: o.t, src: srcOf(o.s) } : null; };
+    const allergenNote = x => EX.x[x] ? { allergen: true, text: `Съдържа ${EX.x[x]} — един от 14-те алергена, които по закон трябва да се открояват в състава, например с удебелен шрифт.`, src: srcOf(['r1169']) } : null;
+    const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+    const lowFirst = s => s && /^[А-ЯA-Z][а-яa-z]/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s;
+
+    /* ctx = the words on the label for this additive, e.g. "соеви лецитини", to pick the right variant. */
+    function additiveInfo(code, ctx) {
+      const a = DB.a[code]; const f = ranked(a); const e = EX.a[code] || {};
+      const v = (e.v || []).find(x => ctx && new RegExp(x.m, 'i').test(ctx)) || null;
+      const name = a ? a.bg : code;
+      const notes = [v && v.x ? allergenNote(v.x) : null, ...(e.n || []).map(noteOf)].filter(Boolean);
+      return { code, name, en: a ? a.en : '', roles: f.filter(x => ROLE[x]).map(x => ROLE[x]), what: e.w || null, why: e.j || null, variant: v ? v.t : null,
+        allergen: v && v.x ? EX.x[v.x] : null, notes, kid: f.map(x => KID_ROLE[x]).find(Boolean) || null, pct: a ? a.p : null, flag: FLAGS[code] || null, known: !!a };
+    }
+
+    const GROUP_WORD = { grain: 'Зърно', sugar: 'Захари', fat: 'Мазнини', palm: 'Мазнини', trans: 'Мазнини', cocoa: 'Какао', dairy: 'Мляко', other: 'Друго' };
+    function ingredientInfo(tag) {
+      const x = ING.get(tag); const e = EX.i[tag] || {};
+      if (!x) return null;
+      const name = lowFirst(e.nm || x.bg);
+      const notes = [allergenNote(e.x), ...(e.n || []).map(noteOf)].filter(Boolean);
+      return { t: tag, name, en: x.en, g: x.g, group: GROUP_WORD[x.g] || 'Друго', what: e.w || null, why: e.j || null,
+        allergen: e.x ? EX.x[e.x] : null, notes, pct: x.p, known: !!e.w };
+    }
+
+    /* Everything on the label in label order, ready to show. */
+    function items(res) {
+      return res.seq.map(it => {
+        if (it.k === 'ing') return Object.assign({ k: 'ing' }, ingredientInfo(it.t));
+        if (it.k === 'add') { const raw = res.add.get(it.c) || ''; const ctx = raw + ' ' + [...res.ing.keys()].filter(t => /lecithin/.test(t)).join(' '); return Object.assign({ k: 'add', ctx: raw === it.c ? '' : raw }, additiveInfo(it.c, ctx)); }
+        return { k: 'unk', name: it.s };
+      });
+    }
+    /* Allergens we recognised (for a hint only; the label is what counts). */
+    function allergens(res) {
+      const out = new Set();
+      items(res).forEach(x => { if (x.allergen) out.add(x.allergen); });
+      return [...out];
     }
 
     /* Closest library spelling for an unsure OCR word (Levenshtein ≤ 2). */
@@ -422,7 +476,7 @@
       return out;
     }
 
-    return { extractBulgarian, extractEnglish, readable, parseNutrition, energyCheck, numCands, analyseText, analyseProduct, summary, kidSummary, flagsFor, additiveInfo, level, cubes, fmt, LEVEL_WORD, LIMITS, suggest, avoidHits, AVOID_RULES, offAdditive, SRC, ING };
+    return { items, ingredientInfo, allergens, EX, extractBulgarian, extractEnglish, readable, parseNutrition, energyCheck, numCands, analyseText, analyseProduct, summary, kidSummary, flagsFor, additiveInfo, level, cubes, fmt, LEVEL_WORD, LIMITS, suggest, avoidHits, AVOID_RULES, offAdditive, SRC, ING };
   }
 
   const api = { createEngine };
