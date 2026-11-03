@@ -1,6 +1,6 @@
 # Kakvo — project status (handoff note)
 
-Last updated: 3 November 2026, version 0.2.1. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
+Last updated: 3 November 2026, version 0.2.2. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
 
 ## What Kakvo is
 A free web app (PWA) for Bulgaria that explains what is in a food product in plain Bulgarian. Owner: Mo, sold by BonbelleGroup.
@@ -34,6 +34,7 @@ A free web app (PWA) for Bulgaria that explains what is in a food product in pla
 - **Switched on 3 Nov 2026 (v0.2.1), on the Open Food Facts TEST server**: worker `https://kakvo-contribute.mimo-ray83-ae3.workers.dev/` on Mo's Cloudflare account (mimo.ray83), OFF accounts `kakvoapp` on .org and .net. To go live: set `OFF_BASE` to `https://world.openfoodfacts.org` and the .org password in `OFF_PASSWORD` (Cloudflare → kakvo-contribute → Settings → Variables and secrets).
 - Original setup steps (done) in `worker/README.md`: Open Food Facts app account (+ API usage form), Cloudflare account, `wrangler secret put OFF_USER/OFF_PASSWORD`, `wrangler deploy`, then the worker address into `CONTRIBUTE_URL` in `js/config.js`. Worker starts on the OFF test server; switch `OFF_BASE` to live after one test.
 - Tests: `node tests/worker.test.mjs`, `node tests/bad-off-e2e.js` (fake OFF on :8790, worker on :8791).
+- v0.2.2 (after Mo's real phone test): text sent to OFF stops before footnotes / "may contain" / best-before; it is sent only if ≤2 unsure words remain in it or the person edited it, otherwise photo only (worker accepts empty text). Bulgarian part now also stops at "Неотворен…", "годен за…", "Партида". **Worker code in Cloudflare must be the v0.2.2 version** (photo-only support).
 - Text from photos can still contain number misreadings ("5,595" for "5,5%"); the photo goes with it as proof.
 
 ## Paid plan (decided by Mo)

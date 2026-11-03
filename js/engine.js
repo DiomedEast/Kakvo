@@ -201,7 +201,7 @@
             res.spans.push({ start: m.index, end: m.index + raw.length, kind: 'ing' }); continue;
           }
         }
-        let s = norm(raw.replace(/\d+[.,]?\d*\s?%/g, ''));
+        let s = norm(raw.replace(/\d+[.,]?\d*\s?%/g, '')).replace(/(^|\s)[-–|+]+(?=[a-zа-я])/g, '$1').replace(/[|+]+$/, '').trim();
         if (!s || /^[\d\s.,-]+$/.test(s)) { if (after === '.') inTrace = false; continue; }
         const span = { start: m.index, end: m.index + raw.length, kind: null };
         if (/може да съдържа|^съдържа (следи|глутен)|^следи от|may contain|^traces? of/.test(s)) inTrace = true;
@@ -214,7 +214,7 @@
         const codes = findCodes(s);
         const hits = codes.length ? codes.map(c => ({ add: c })) : lookup(s);
         const letters = s.replace(/[^a-zа-я]/gi, '');
-        if (!hits && (letters.length < 3 || (/\d/.test(s) && /^[^\s]+$/.test(s)))) { res.noise = (res.noise || 0) + 1; continue; }
+        if (!hits && (letters.length <= 3 || (/\d/.test(s) && /^[^\s]+$/.test(s)))) { res.noise = (res.noise || 0) + 1; continue; }
         if (!hits) { res.unk.push(raw.trim()); pushSeq(res, { k: 'unk', s: raw.trim() }); span.kind = 'unk'; res.spans.push(span); continue; }
         for (const h of hits) {
           if (h.add) { if (!res.add.has(h.add)) res.add.set(h.add, raw.trim()); pushSeq(res, { k: 'add', c: h.add, fn: star }); last = { k: 'add', c: h.add }; span.kind = FLAGS[h.add] && FLAGS[h.add].level === 'warn' ? 'flag' : (span.kind === 'flag' ? 'flag' : 'add'); }
@@ -397,7 +397,7 @@
       if (start < 0) return { part: t.trim(), found: false, start: 0, end: t.length };
       const from = t.indexOf(':', start) >= 0 && t.indexOf(':', start) - start < 14 ? t.indexOf(':', start) + 1 : start;
       const rest = t.slice(from);
-      const stops = [/да се съхранява/i, /съхранявайте/i, /произведено/i, /опаковано/i, /вносител/i, /най[- ]добър до/i, /хранителна стойност/i, /fairtrade/i,
+      const stops = [/да се съхранява/i, /съхранявайте/i, /произведено/i, /неотворен/i, /годен за (употреба|консумация)/i, /срок на годност/i, /партида/i, /нетно количество/i, /произход на (брашното|суровината|млякото|месото)/i, /символично изображение/i, /опаковано/i, /вносител/i, /най[- ]добър до/i, /хранителна стойност/i, /fairtrade/i,
         /(^|\n|\s)[\[(]?(EN|DE|FR|IT|ES|PT|NL|SE|SV|DK|FI|NO|PL|CZ|SK|HU|RO|RS|HR|SI|SL|GR|CY|TR|UA|RU|MK|AL|LT|LV|EE)[\])]?\s/];
       let end = rest.length;
       stops.forEach(re => { const m = re.exec(rest); if (m && m.index < end && m.index > 3) end = m.index; });

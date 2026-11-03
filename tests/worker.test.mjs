@@ -38,6 +38,12 @@ await t('refuses other websites, non-Bulgarian text, unknown products, non-JPEG'
   assert.strictEqual((await call({ code: '4056489999990', text, image: new Blob(['x'.repeat(2000)], { type: 'image/jpeg' }), uuid })).status, 400);
   assert.strictEqual(checkInput({ code: '12', text, image, uuid }), 'bad code');
 });
+await t('photo only (text not clear enough): photo sent, text untouched', async () => {
+  products['4056489999992'] = {}; const before = log.length;
+  const r = await call({ code: '4056489999992', text: '', image, uuid: '3f1c2b9e-2222-4a2b-9c3d-123456789abc' }); const b = await r.json();
+  assert.deepStrictEqual([r.status, b.photo, b.text], [200, 'ingredients_bg', 'not sent']);
+  assert.ok(!log.slice(before).some(x => x.path && x.path.includes('jqm2'))); assert.ok(!products['4056489999992'].ingredients_text_bg);
+});
 await t('password never appears in a response', async () => {
   const r = await call({ code: '4056489999990', text, image, uuid }); assert.ok(!(await r.text()).includes('secret'));
 });

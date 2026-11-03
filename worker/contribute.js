@@ -9,6 +9,7 @@
  * - Only existing products (the app only offers sharing after a barcode scan found the product).
  * - The photo is added as the Bulgarian ingredients photo, or as an extra photo if one is already selected.
  * - The Bulgarian ingredient text is written only if the product has none. Existing data is never replaced.
+ * - Text may be empty: then only the photo is sent (the app does this when the text was not read clearly).
  *
  * Settings (wrangler.toml [vars] and secrets):
  *   OFF_BASE         https://world.openfoodfacts.net (test server, default) or https://world.openfoodfacts.org (live)
@@ -40,7 +41,9 @@ export function checkInput(body) {
   const { code, text, uuid } = body;
   if (typeof code !== 'string' || !/^\d{8,14}$/.test(code)) return 'bad code';
   if (typeof uuid !== 'string' || !/^[0-9a-f-]{36}$/i.test(uuid)) return 'bad uuid';
-  if (typeof text !== 'string' || text.length < 10 || text.length > 3000) return 'bad text length';
+  if (typeof text !== 'string' || text.length > 3000) return 'bad text length';
+  if (text === '') return null; // photo only
+  if (text.length < 10) return 'bad text length';
   const letters = text.replace(/[^\p{L}]/gu, ''); const cyr = text.replace(/[^Ѐ-ӿ]/g, '');
   if (letters.length < 10 || cyr.length / letters.length < 0.6) return 'text is not Bulgarian';
   return null;
@@ -95,8 +98,8 @@ export default {
     const photo = up.ok && upBody && /ok/i.test(upBody.status || '') ? field : (upBody && upBody.error) || 'failed (' + up.status + ')';
 
     // 3. The text, only if the product has none.
-    let text = 'kept existing';
-    if (!hasText) {
+    let text = body.text ? 'kept existing' : 'not sent';
+    if (!hasText && body.text) {
       const f2 = new FormData();
       f2.set('user_id', env.OFF_USER); f2.set('password', env.OFF_PASSWORD); f2.set('code', body.code);
       f2.set('ingredients_text_bg', body.text.trim());

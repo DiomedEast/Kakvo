@@ -76,6 +76,15 @@ t('broken database entry: garbled list is not shown, English list used when ther
   const en = E.analyseProduct({ ingredients_text_en: 'Wheat flour, sugar, palm oil, emulsifier: soya lecithin, salt, raising agents: sodium carbonates, ammonium carbonates.' });
   assert.strictEqual(en.lang, 'en'); assert.ok(E.readable(en)); assert.ok(en.add.has('E503'));
 });
+t('real phone reading of the Sondey label (3 Nov 2026): list ends before best-before, OCR scraps ignored', () => {
+  const full = 'Съставки: пшенично брашно, захар, растителни масла (от палма” соя), 5,595 какао на прах”, глюкозен сироп, лешникова паста, яйчен --меланж””, сухо пълномаслено мляко, 1,226 какаова маса”, 1-шоколад |вахар, какаова маса“, какаово масло“, емулгатор: лецитини+соеви); ароматизанти|, дехидратирани млечни мазнини, емулгатор: лецитини (соеви); трапезна сол, набухватели: натриеви карбонати, амониеви карбонати; ароматизанти. “Сертифицирано Кап оте5! АШапнсе. -та.ота. “Яйца от кокошки - подово отглеждане. “От устойчиво производство. Може да съдържа следи от ядки, фъстъци и синап. -Неотворен годен за употреба до края на:/Партида: виж долната страна.';
+  const x = E.extractBulgarian(full);
+  assert.ok(!/неотворен|партида/i.test(x.part), x.part.slice(-60));
+  const r = E.analyseText(x.part);
+  assert.deepStrictEqual(r.unk, [], r.unk.join('|'));
+  assert.ok(r.ing.has('egg') && r.add.has('E322') && r.ing.has('palm-oil'));
+  assert.strictEqual(E.items(r).find(i => i.code === 'E322').allergen, 'соя');
+});
 t('OFF additive tags', () => {
   assert.strictEqual(E.offAdditive('en:e500ii'), 'E500');
   assert.strictEqual(E.offAdditive('en:e160a'), 'E160A');
