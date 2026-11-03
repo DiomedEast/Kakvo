@@ -28,7 +28,16 @@ function cors(origin, env) {
   return { ok, headers: ok ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '86400', Vary: 'Origin' } : {} };
 }
 /* Diagnostics in the Cloudflare log (Observability): what Open Food Facts answered. Never logs the password. */
-const short = s => String(s || '').replace(/\s+/g, ' ').slice(0, 400);
+const short = s => {
+  let t = String(s || '');
+  if (/<html|<!doctype/i.test(t)) { // an HTML error page: keep only the readable error text
+    t = t.replace(/<!--[\s\S]*?-->/g, ' ').replace(/<(script|style|nav|header|footer)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ');
+    t = t.replace(/\s+/g, ' ');
+    const i = t.search(/error|invalid|incorrect|forbidden|not allowed|permission|log ?in|password|blocked|banned/i);
+    return 'HTML: ' + t.slice(Math.max(0, i - 80), Math.max(0, i - 80) + 500).trim();
+  }
+  return t.replace(/\s+/g, ' ').slice(0, 400);
+};
 const json = (status, body, headers) => new Response(JSON.stringify(body), { status, headers: Object.assign({ 'Content-Type': 'application/json' }, headers) });
 
 function limited(key, max, ms) {
