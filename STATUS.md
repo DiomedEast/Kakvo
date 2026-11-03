@@ -1,6 +1,6 @@
 # Kakvo — project status (handoff note)
 
-Last updated: 3 November 2026, version 0.2.0. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
+Last updated: 3 November 2026, version 0.2.1. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
 
 ## What Kakvo is
 A free web app (PWA) for Bulgaria that explains what is in a food product in plain Bulgarian. Owner: Mo, sold by BonbelleGroup.
@@ -31,7 +31,8 @@ A free web app (PWA) for Bulgaria that explains what is in a food product in pla
 
 ## Sharing photos with Open Food Facts (v0.2.0, built, not switched on)
 - Mo said yes. After a "Снимай състава" photo for a scanned product, a ticked-by-default "Сподели с Open Food Facts" box sends the framed label photo (JPEG, ≥640×160) and the checked Bulgarian text to `worker/contribute.js` (Cloudflare Worker), which writes to Open Food Facts with the app account: photo as `ingredients_bg` (or `other` if one exists), text only if the product has none. Never replaces data. Anonymous per-phone `app_uuid`. Offline → outbox of 5, retried on next start.
-- **Off until Mo does the setup in `worker/README.md`**: Open Food Facts app account (+ API usage form), Cloudflare account, `wrangler secret put OFF_USER/OFF_PASSWORD`, `wrangler deploy`, then the worker address into `CONTRIBUTE_URL` in `js/config.js`. Worker starts on the OFF test server; switch `OFF_BASE` to live after one test.
+- **Switched on 3 Nov 2026 (v0.2.1), on the Open Food Facts TEST server**: worker `https://kakvo-contribute.mimo-ray83-ae3.workers.dev/` on Mo's Cloudflare account (mimo.ray83), OFF accounts `kakvoapp` on .org and .net. To go live: set `OFF_BASE` to `https://world.openfoodfacts.org` and the .org password in `OFF_PASSWORD` (Cloudflare → kakvo-contribute → Settings → Variables and secrets).
+- Original setup steps (done) in `worker/README.md`: Open Food Facts app account (+ API usage form), Cloudflare account, `wrangler secret put OFF_USER/OFF_PASSWORD`, `wrangler deploy`, then the worker address into `CONTRIBUTE_URL` in `js/config.js`. Worker starts on the OFF test server; switch `OFF_BASE` to live after one test.
 - Tests: `node tests/worker.test.mjs`, `node tests/bad-off-e2e.js` (fake OFF on :8790, worker on :8791).
 - Text from photos can still contain number misreadings ("5,595" for "5,5%"); the photo goes with it as proof.
 
