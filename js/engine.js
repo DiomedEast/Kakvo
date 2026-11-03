@@ -72,7 +72,7 @@
     'пшеничено брашно': '#wheat-flour', 'бяло пшенично брашно': '#wheat-flour', 'брашно пшенично тип 500': '#wheat-flour',
     'суха суроватка': '#whey-powder', 'млечна суроватка': '#whey', 'суха сладка суроватка': '#sweet-whey-powder',
     'кашкавал': '#cheese', 'ароматизатор': '#flavouring', 'ароматизатори': '#flavouring', 'ароматизант': '#flavouring',
-    'аромати': '#flavouring', 'мед': '#honey', 'пчелен мед': '#bee-honey', 'свинска мас': '#pork-fat',
+    'аромати': '#flavouring', 'ароматизанти': '#flavouring', 'ароматизатор и': '#flavouring', 'мед': '#honey', 'пчелен мед': '#bee-honey', 'свинска мас': '#pork-fat',
     'сирище': '#rennet', 'мая за сирене': '#rennet', 'сирищни ензими': '#rennet', 'ший': '#shea', 'гума база': '#gum-base',
     'фъстъци': '#peanut', 'фъстък': '#peanut', 'лешници': '#hazelnut', 'бадеми': '#almond',
     'растителни мазнини': '#vegetable-fat', 'растителни масла': '#vegetable-oil'
@@ -82,6 +82,15 @@
   const LETTER = /[a-zа-яà-ÿœ]/i;
   const SUFFIX = { 'а': 'A', 'б': 'B', 'с': 'C', 'ц': 'C', 'д': 'D', 'е': 'E', a: 'A', b: 'B', c: 'C', d: 'D', e: 'E' };
 
+  /* "растителни масла (от палма, соя)": which oil each plant word means. */
+  const OIL_FROM = [[/^(от )?палм/, 'palm-oil', 'palm-fat'], [/^(от )?(соя|соев)/, 'soya-oil', 'soya-oil'], [/^(от )?слънчоглед/, 'sunflower-oil', 'sunflower-oil'],
+    [/^(от )?(рапица|рапич)/, 'rapeseed-oil', 'rapeseed-oil'], [/^(от )?кокос/, 'coconut-oil', 'coconut-oil'], [/^(от )?ший/, 'shea-butter', 'shea-butter'], [/^(от )?(маслин)/, 'olive-oil', 'olive-oil'],
+    [/^(от )?(палмови ядки|палмова ядка)/, 'palm-kernel-oil', 'palm-kernel-oil']];
+  const OIL_PARENT = new Set(['vegetable-oil', 'vegetable-fat', 'vegetable-oil-and-fat', 'oil-and-fat', 'fat']);
+  /* "лецитини (соеви)": a word that only says where the previous item comes from. */
+  const QUALIFIER = /^(от )?(соя|соеви|соев|соева|слънчоглед|слънчогледови|слънчогледов|рапица|рапични|рапичен|царевица|царевично|пшеница|пшенично|картофи|картофено|говежди|свински|рибен|рибни|soja|soy|soya|sunflower|tournesol|colza|rapeseed)$/;
+  /* Label footnotes and claims that are not ingredients ("Яйца от кокошки - подово отглеждане", "Сертифицирано Rainforest Alliance"). */
+  const NOTE_LINE = /сертифицира|отглеждане|устойчив|rainforest|fairtrade|справедлива търговия|rspo|символично изображение|произход на/i;
   const norm = s => s.toLowerCase().replace(/ё/g, 'е').replace(/[’‘`]/g, "'").replace(/[“”„"«»*]/g, '').replace(/\s+/g, ' ').trim();
 
   /* Open Food Facts category tags that are a job title ("emulsifier"), not an ingredient. */
@@ -143,36 +152,77 @@
     function pushSeq(res, item) {
       if (item.k === 'ing' && ING_TO_ADD[item.t]) item = { k: 'add', c: ING_TO_ADD[item.t] };
       if (item.k === 'ing' && ROLE_TAGS.has(item.t)) return;
-      if (item.k !== 'unk' && res.seq.some(x => x.k === item.k && (x.t || x.c) === (item.t || item.c))) return;
+      const dup = item.k !== 'unk' && res.seq.find(x => x.k === item.k && (x.t || x.c) === (item.t || item.c));
+      if (dup) { if (item.fn && !dup.fn) dup.fn = item.fn; return; }
       res.seq.push(item);
     }
 
     /* Analyse free text (label photo, typed text, or the Bulgarian label text of a product). */
+    /* Footnotes: "*Сертифицирано Rainforest Alliance. **Яйца от кокошки - подово отглеждане." after the list.
+       A definition starts with stars right before a letter, not after one (unlike "какао*"). */
+    function footnotes(text) {
+      const re = /(?<![\p{L}*])(\*{1,3})\s?(?=\p{L})/gu; const defs = []; let m;
+      while ((m = re.exec(text))) defs.push({ n: m[1].length, at: m.index, from: m.index + m[0].length });
+      if (!defs.length) return { start: -1, end: -1, map: {} };
+      const trace = /може да съдържа|може да има следи|may contain/i; const tail = text.slice(defs[0].at); const tm = trace.exec(tail);
+      const end = tm ? defs[0].at + tm.index : text.length; const map = {};
+      defs.filter(d => d.at < end).forEach((d, i, a) => { const stop = i + 1 < a.length ? a[i + 1].at : end; map[d.n] = text.slice(d.from, stop).replace(/\s+/g, ' ').trim().replace(/[.;,]\s*$/, ''); });
+      return { start: defs[0].at, end, map };
+    }
+
     function analyseText(text, res) {
       res = res || emptyResult();
-      const scan = text.replace(/(\d)[,.](?=\d)/g, '$1\u0001');
-      const re = /[^,;:()\[\]{}•·\n.]+/g; let m; let inTrace = false;
+      const fn = footnotes(text); if (Object.keys(fn.map).length) res.fn = fn.map;
+      /* Product name and other text before "Съставки:" are not ingredients. */
+      const head = /(съставки|състав|ingredients?|ingrédients)\s*:/i.exec(text); const listStart = head ? head.index + head[0].length : 0;
+      const scan = text.replace(/(\d)[,.](?=\d)/g, '$1\u0001').replace(/\b(www\.)?([a-z0-9-]+)\.(org|com|bg|eu|net)\b/gi, (w) => w.replace(/\./g, '\u0001'));
+      const re = /[^,;:()\[\]{}•·\n.]+/g; let m; let inTrace = false; let last = null;
       while ((m = re.exec(scan))) {
         const raw = text.slice(m.index, m.index + m[0].length);
         const after = scan[m.index + m[0].length] || '';
+        const at = m.index + (m[0].length - m[0].trimStart().length);
+        if (at < listStart) continue;
+        if (fn.start >= 0 && at >= fn.start && at < fn.end) continue;
+        const stars = (/(\*+)\s*$/.exec(raw) || [])[1]; const star = stars && res.fn && res.fn[stars.length] ? stars.length : 0;
+        const before = scan.slice(0, m.index); const inParen = before.lastIndexOf('(') > before.lastIndexOf(')');
+        if (inParen && last) {
+          const q = norm(raw.replace(/\*+/g, ''));
+          if (last.k === 'ing' && OIL_PARENT.has(last.t)) {
+            const words = q.replace(/^от /, '').split(/\s+(?:и\s+)?/).filter(w => w && w !== 'от');
+            const tags = words.map(w => { const o = OIL_FROM.find(([r]) => r.test(w)); const t = o && (last.t === 'vegetable-fat' ? o[2] : o[1]); return t && ING.has(t) ? t : null; });
+            if (tags.length && tags.every(Boolean)) {
+              tags.forEach(tag => { const x = ING.get(tag); if (!res.ing.has(tag)) res.ing.set(tag, x); res.order.push(x); pushSeq(res, { k: 'ing', t: tag, fn: tags.length === 1 ? star : 0, of: last.t }); });
+              res.spans.push({ start: m.index, end: m.index + raw.length, kind: 'ing' }); continue;
+            }
+          }
+          if (QUALIFIER.test(q)) {
+            if (last.k === 'add') res.add.set(last.c, (res.add.get(last.c) || '') + ' ' + q);
+            const it = res.seq.find(x => x.k === last.k && (x.t || x.c) === (last.t || last.c)); if (it) it.q = ((it.q || '') + ' ' + q).trim();
+            res.spans.push({ start: m.index, end: m.index + raw.length, kind: 'ing' }); continue;
+          }
+        }
         let s = norm(raw.replace(/\d+[.,]?\d*\s?%/g, ''));
         if (!s || /^[\d\s.,-]+$/.test(s)) { if (after === '.') inTrace = false; continue; }
         const span = { start: m.index, end: m.index + raw.length, kind: null };
         if (/може да съдържа|^съдържа (следи|глутен)|^следи от|may contain|^traces? of/.test(s)) inTrace = true;
-        if (inTrace) { res.traces = res.traces || []; res.traces.push(raw.trim().replace(/^(.*?(може да съдържа|следи от|may contain|traces? of)\s*)+/i, '')); res.notes.add('trace:' + raw.trim()); span.kind = 'ing'; res.spans.push(span); if (after === '.' || after === '\n') inTrace = false; continue; }
+        if (inTrace) { res.traces = res.traces || []; raw.trim().replace(/^(.*?(може да съдържа|следи от|may contain|traces? of)\s*)+/i, '').split(/\s+(?:и|and)\s+/).forEach(t => t && res.traces.push(t)); res.notes.add('trace:' + raw.trim()); span.kind = 'ing'; res.spans.push(span); if (after === '.' || after === '\n') inTrace = false; continue; }
         if (/фенилаланин/.test(s)) { res.notes.add('phe'); span.kind = 'ing'; res.spans.push(span); continue; }
         if (NOISE.test(s)) continue;
+        if (NOTE_LINE.test(s) && s.split(' ').length >= 2) { const n = raw.trim().replace(/^[*”“"„\s]+|[*”“"\s]+$/g, ''); res.labelNotes = res.labelNotes || []; if (!res.labelNotes.includes(n)) res.labelNotes.push(n); continue; }
         let prev; do { prev = s; s = s.replace(ROLE_LABEL, '').trim(); } while (s !== prev);
         if (!s) continue;
         const codes = findCodes(s);
         const hits = codes.length ? codes.map(c => ({ add: c })) : lookup(s);
+        const letters = s.replace(/[^a-zа-я]/gi, '');
+        if (!hits && (letters.length < 3 || (/\d/.test(s) && /^[^\s]+$/.test(s)))) { res.noise = (res.noise || 0) + 1; continue; }
         if (!hits) { res.unk.push(raw.trim()); pushSeq(res, { k: 'unk', s: raw.trim() }); span.kind = 'unk'; res.spans.push(span); continue; }
         for (const h of hits) {
-          if (h.add) { if (!res.add.has(h.add)) res.add.set(h.add, raw.trim()); pushSeq(res, { k: 'add', c: h.add }); span.kind = FLAGS[h.add] && FLAGS[h.add].level === 'warn' ? 'flag' : (span.kind === 'flag' ? 'flag' : 'add'); }
-          else { const x = h.ing; if (!res.ing.has(x.t)) res.ing.set(x.t, x); res.order.push(x); pushSeq(res, { k: 'ing', t: x.t }); if (!span.kind) span.kind = x.g === 'sugar' ? 'sugar' : 'ing'; }
+          if (h.add) { if (!res.add.has(h.add)) res.add.set(h.add, raw.trim()); pushSeq(res, { k: 'add', c: h.add, fn: star }); last = { k: 'add', c: h.add }; span.kind = FLAGS[h.add] && FLAGS[h.add].level === 'warn' ? 'flag' : (span.kind === 'flag' ? 'flag' : 'add'); }
+          else { const x = h.ing; if (!res.ing.has(x.t)) res.ing.set(x.t, x); res.order.push(x); pushSeq(res, { k: 'ing', t: x.t, fn: star }); last = { k: 'ing', t: x.t }; if (!span.kind) span.kind = x.g === 'sugar' ? 'sugar' : 'ing'; }
         }
         res.spans.push(span);
       }
+      if (res.fn) { const used = new Set(res.seq.map(x => x.fn).filter(Boolean)); Object.keys(res.fn).forEach(k => { if (!used.has(+k)) { res.labelNotes = res.labelNotes || []; res.labelNotes.push(res.fn[k]); } }); }
       return res;
     }
 
@@ -291,10 +341,17 @@
     /* Everything on the label in label order, ready to show. */
     function items(res) {
       return res.seq.map(it => {
-        if (it.k === 'ing') return Object.assign({ k: 'ing' }, ingredientInfo(it.t));
-        if (it.k === 'add') { const raw = res.add.get(it.c) || ''; const ctx = raw + ' ' + [...res.ing.keys()].filter(t => /lecithin/.test(t)).join(' '); return Object.assign({ k: 'add', ctx: raw === it.c ? '' : raw }, additiveInfo(it.c, ctx)); }
+        const label = it.fn && res.fn ? res.fn[it.fn] : null;
+        const extra = { label, labelNote: label ? glossFor(label) : null };
+        if (it.k === 'ing') return Object.assign({ k: 'ing', of: it.of || null }, ingredientInfo(it.t), extra);
+        if (it.k === 'add') { const raw = res.add.get(it.c) || ''; const ctx = raw + ' ' + (it.q || '') + ' ' + [...res.ing.keys()].filter(t => /lecithin/.test(t)).join(' '); return Object.assign({ k: 'add', ctx: raw === it.c ? '' : (raw + ' ' + (it.q || '')).trim() }, additiveInfo(it.c, ctx), extra); }
         return { k: 'unk', name: it.s };
       });
+    }
+    /* Plain explanation of a footnote phrase ("подово отглеждане", "Rainforest Alliance"). */
+    function glossFor(label) {
+      const g = (EX.gloss || []).find(x => new RegExp(x.m, 'i').test(label));
+      return g ? { text: g.t, src: srcOf(g.s) } : null;
     }
     /* Allergens we recognised (for a hint only; the label is what counts). */
     function allergens(res) {
@@ -476,7 +533,7 @@
       return out;
     }
 
-    return { items, ingredientInfo, allergens, EX, extractBulgarian, extractEnglish, readable, parseNutrition, energyCheck, numCands, analyseText, analyseProduct, summary, kidSummary, flagsFor, additiveInfo, level, cubes, fmt, LEVEL_WORD, LIMITS, suggest, avoidHits, AVOID_RULES, offAdditive, SRC, ING };
+    return { items, ingredientInfo, allergens, glossFor, EX, extractBulgarian, extractEnglish, readable, parseNutrition, energyCheck, numCands, analyseText, analyseProduct, summary, kidSummary, flagsFor, additiveInfo, level, cubes, fmt, LEVEL_WORD, LIMITS, suggest, avoidHits, AVOID_RULES, offAdditive, SRC, ING };
   }
 
   const api = { createEngine };

@@ -48,6 +48,26 @@ t('explanation data is consistent (sources exist, tags exist)', () => {
     (EX[sec][k].n || []).forEach(n => { const o = typeof n === 'string' ? EX.notes[n] : n; assert.ok(o && o.s.every(s => EX.src[s]), k); });
   });
 });
+t('real label: Lidl Sondey cocoa biscuits (typed and as read from the photo)', () => {
+  const want = 'wheat-flour,sugar,vegetable-oil,palm-oil,soya-oil,cocoa-powder,glucose-syrup,hazelnut-paste,egg,whole-milk-powder,cocoa-paste,chocolate,cocoa-butter,E322,flavouring,butterfat,salt,E500,E503';
+  const typed = 'пшенично брашно, захар, растителни масла (от палма***, соя), 5,5% какао на прах*, глюкозен сироп, лешникова паста, яйчен меланж**, сухо пълномаслено мляко, 1,2% какаова маса*, 1% шоколад [захар, какаова маса*, какаово масло*, емулгатор: лецитини (соеви); ароматизанти], дехидратирани млечни мазнини, емулгатор: лецитини (соеви); трапезна сол, набухватели: натриеви карбонати, амониеви карбонати; ароматизанти. *Сертифицирано Rainforest Alliance. ra.org. **Яйца от кокошки - подово отглеждане. ***От устойчиво производство. Може да съдържа следи от ядки, фъстъци и синап.';
+  const ocr = 'пшенично брашно, захар, растителни масла (от палма” соя), 5,595 какао на прах”, глюкозен сироп, лешникова паста, яйчен меланж””, сухо пълномаслено мляко, 1,256 какаова маса”, 19 шоколад захар, какаова маса“, какаово масло“, емулгатор: лецитини (соеви); ароматизанти), дехидратирани млечни мазнини, емулгатор: лецитини (соеви); трапезна сол, набухватели: натриеви карбонати, амониеви карбонати; ароматизанти. “Сертифицирано Ваттоте5! АШапсе. та.0т9. Яйца от кокошки - подово отглеждане. От устойчиво производство. Може да съдържа следи от ядки, фъстъци и синап.';
+  for (const txt of [typed, ocr]) {
+    const r = E.analyseText(txt); const it = E.items(r);
+    assert.strictEqual(it.map(x => x.t || x.code).join(','), want);
+    assert.strictEqual(r.unk.length, 0, r.unk.join('|'));
+    assert.deepStrictEqual(r.traces, ['ядки', 'фъстъци', 'синап']);
+    assert.strictEqual(it.find(x => x.code === 'E322').allergen, 'соя');
+    assert.strictEqual(it.find(x => x.t === 'soya-oil').allergen, null);
+  }
+  const withTitle = E.items(E.analyseText('Бисквити с какао, с 40% пълнеж от крем с 1% шоколад.\nСъставки: ' + typed));
+  assert.strictEqual(withTitle.map(x => x.t || x.code).join(','), want, 'title before "Съставки:" is ignored');
+  const it = E.items(E.analyseText(typed));
+  assert.strictEqual(it.find(x => x.t === 'egg').label, 'Яйца от кокошки - подово отглеждане');
+  assert.ok(it.find(x => x.t === 'egg').labelNote.src.length);
+  assert.strictEqual(it.find(x => x.t === 'palm-oil').label, 'От устойчиво производство');
+  assert.ok(E.summary(E.analyseText(typed), null, 'food').includes('палмово масло'));
+});
 t('OFF additive tags', () => {
   assert.strictEqual(E.offAdditive('en:e500ii'), 'E500');
   assert.strictEqual(E.offAdditive('en:e160a'), 'E160A');

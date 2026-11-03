@@ -151,17 +151,19 @@
     const from = encodeURIComponent(back || '#/');
     const rows = list.map(x => {
       if (x.k === 'unk') return `<div class="addrow unk"><span class="code">?</span><span><b>${esc(cap(x.name))}</b><small>Още нямаме обяснение за тази съставка.</small></span><span></span></div>`;
-      const al = x.allergen ? `<small class="al">Алерген: ${esc(x.allergen)}</small>` : '';
+      const al = (x.allergen ? `<small class="al">Алерген: ${esc(x.allergen)}</small>` : '') + (x.label ? `<small class="lab">✱ ${esc(x.label)}</small>` : '') + (x.of ? `<small>Част от „растителни масла“</small>` : '');
+      const lq = x.label ? '&l=' + encodeURIComponent(x.label) : '';
       if (x.k === 'add') {
         const c = x.code;
-        return `<a class="addrow ${x.flag && x.flag.level === 'warn' ? 'warn' : ''}" href="#/a/${encodeURIComponent(c)}?from=${from}${x.ctx ? '&c=' + encodeURIComponent(x.ctx) : ''}"><span class="code">${c === 'E14X' ? 'E14xx' : c}</span><span><b>${esc(cap(x.name))}</b><small>${esc(cap(roleLine(x)))}</small>${al}</span>${icon('chev', 18, 2)}</a>`;
+        return `<a class="addrow ${x.flag && x.flag.level === 'warn' ? 'warn' : ''}" href="#/a/${encodeURIComponent(c)}?from=${from}${x.ctx ? '&c=' + encodeURIComponent(x.ctx) : ''}${lq}"><span class="code">${c === 'E14X' ? 'E14xx' : c}</span><span><b>${esc(cap(x.name))}</b><small>${esc(cap(roleLine(x)))}</small>${al}</span>${icon('chev', 18, 2)}</a>`;
       }
-      return `<a class="addrow" href="#/i/${encodeURIComponent(x.t)}?from=${from}"><span class="code grp g-${x.g}">${esc(x.group)}</span><span><b>${esc(cap(x.name))}</b><small>${esc(x.what ? firstSentence(x.what) : 'Още нямаме подробно обяснение.')}</small>${al}</span>${icon('chev', 18, 2)}</a>`;
+      return `<a class="addrow" href="#/i/${encodeURIComponent(x.t)}?from=${from}${lq}"><span class="code grp g-${x.g}">${esc(x.group)}</span><span><b>${esc(cap(x.name))}</b><small>${esc(x.what ? firstSentence(x.what) : 'Още нямаме подробно обяснение.')}</small>${al}</span>${icon('chev', 18, 2)}</a>`;
     }).join('');
     const als = E.allergens(res);
     const alNote = als.length ? `<div class="note">Разпознахме алергени: <b>${esc(als.join(', '))}</b>. На етикета те трябва да са откроени, например с удебелен шрифт. При алергия винаги проверявай етикета.</div>` : '';
+    const notes = (res.labelNotes || []).map(n => { const g = E.glossFor(n); return `<div class="flag info"><h3>Етикетът пише: „${esc(n)}“</h3>${g ? `<p>${esc(g.text)}</p>${g.src.length ? srcLinks(g.src) : ''}` : ''}</div>`; }).join('');
     return `<div style="display:flex;flex-direction:column;gap:6px"><h2>Какво ядеш: съставка по съставка</h2>
-      <span style="font-size:14px;color:var(--muted)">По реда на етикета: първата съставка е най-много. Докосни, за да видиш повече.</span>${alNote}<div style="display:flex;flex-direction:column">${rows}</div></div>`;
+      <span style="font-size:14px;color:var(--muted)">По реда на етикета: първата съставка е най-много. Докосни, за да видиш повече.</span>${alNote}<div style="display:flex;flex-direction:column">${rows}</div>${notes ? '<div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">' + notes + '</div>' : ''}</div>`;
   }
 
   function labelHtml(text, res) {
@@ -265,12 +267,19 @@
 
   const noteHtml = n => `<div class="flag ${n.allergen ? '' : 'info'}"><h3>${n.allergen ? 'Алерген' : 'Добре е да знаеш'}</h3><p>${esc(n.text)}</p>${n.src && n.src.length ? srcLinks(n.src) : ''}</div>`;
 
-  function viewAdditive(code, back, ctx) {
+  /* What the label's own footnote says about this item, plus a plain explanation when we have one. */
+  const labelHtml2 = label => {
+    if (!label) return '';
+    const g = E.glossFor ? E.glossFor(label) : null;
+    return `<div class="flag info"><h3>Етикетът казва: „${esc(label)}“</h3>${g ? `<p>${esc(g.text)}</p>${g.src.length ? srcLinks(g.src) : ''}` : ''}</div>`;
+  };
+
+  function viewAdditive(code, back, ctx, label) {
     const a = E.additiveInfo(code, ctx || '');
     const roles = (a.what ? `<h2>Какво е</h2><p class="lead" style="margin:0">${esc(a.what)}</p>${a.variant ? `<p style="margin:0;font-weight:600">${esc(a.variant)}</p>` : ''}<h2>Какво прави в храната</h2>` : '')
       + (a.roles.length ? a.roles.map(r => `<p class="${a.what ? '' : 'lead'}" style="margin:0;${a.what ? 'font-size:16px;line-height:1.5' : ''}">${esc(r)}</p>`).join('') : `<p class="lead">${a.known ? 'Ролята ѝ още не е описана в Kakvo.' : 'Тази добавка още не е в нашата база.'}</p>`)
       + (a.why ? `<p style="margin:0;font-size:16px;line-height:1.5">${esc(a.why)}</p>` : '')
-      + a.notes.map(noteHtml).join('');
+      + labelHtml2(label) + a.notes.map(noteHtml).join('');
     view(`<header class="head">${LEAF}<div class="row"><a class="rbtn" href="${esc(back || '#/')}" aria-label="Назад">${icon('back')}</a>${LOGO}<span style="width:44px"></span></div>
       <span style="align-self:flex-start;font-weight:800;font-size:15px;background:#FFFFFF;color:var(--g);padding:6px 12px;border-radius:10px">${code === 'E14X' ? 'E14xx' : esc(code)}</span>
       <h1 style="font-weight:900;font-size:30px;line-height:1.05">${esc(a.name.charAt(0).toUpperCase() + a.name.slice(1))}</h1>${a.en ? `<div class="meta">${esc(a.en)}</div>` : ''}</header>
@@ -281,7 +290,7 @@
       </div>${FOOT()}`);
   }
 
-  function viewIngredient(tag, back) {
+  function viewIngredient(tag, back, label) {
     const x = E.ingredientInfo(tag);
     if (!x) return go(back || '#/');
     view(`<header class="head">${LEAF}<div class="row"><a class="rbtn" href="${esc(back || '#/')}" aria-label="Назад">${icon('back')}</a>${LOGO}<span style="width:44px"></span></div>
@@ -290,7 +299,7 @@
       <div class="wrap">
       ${x.what ? `<h2>Какво е</h2><p class="lead" style="margin:0">${esc(x.what)}</p>` : `<p class="lead">Още нямаме подробно обяснение за тази съставка. Тя е от групата „${esc(x.group.toLowerCase())}“.</p>`}
       ${x.why ? `<h2>Защо е в храната</h2><p style="margin:0;font-size:16px;line-height:1.5">${esc(x.why)}</p>` : ''}
-      ${x.notes.map(noteHtml).join('')}
+      ${labelHtml2(label)}${x.notes.map(noteHtml).join('')}
       ${x.pct != null ? `<div class="card" style="flex-direction:row;align-items:baseline;gap:8px"><span style="font-family:var(--display);font-weight:900;font-size:24px">${x.pct >= 1 ? Math.round(x.pct) + '%' : '&lt;1%'}</span><span style="font-size:15px">от продуктите със състав в България я съдържат (данни Open Food Facts).</span></div>` : ''}
       <div class="note">Обясненията на Kakvo казват какво е съставката и защо е там. Предупреждения показваме само с официален източник.</div>
       </div>${FOOT()}`);
@@ -843,8 +852,8 @@
     if (path === '/' || path === '') return viewScan();
     if ((m = /^\/p\/(\d{6,14})$/.exec(path))) return viewProduct(m[1], false);
     if ((m = /^\/k\/(\d{6,14})$/.exec(path))) return viewProduct(m[1], true);
-    if ((m = /^\/a\/([A-Z0-9]+)$/.exec(path))) return viewAdditive(m[1], qs.get('from'), qs.get('c'));
-    if ((m = /^\/i\/([a-z0-9-]+)$/.exec(path))) return viewIngredient(m[1], qs.get('from'));
+    if ((m = /^\/a\/([A-Z0-9]+)$/.exec(path))) return viewAdditive(m[1], qs.get('from'), qs.get('c'), qs.get('l'));
+    if ((m = /^\/i\/([a-z0-9-]+)$/.exec(path))) return viewIngredient(m[1], qs.get('from'), qs.get('l'));
     if ((m = /^\/notfound\/(\d+)$/.exec(path))) return viewNotFound(m[1]);
     if (path === '/photo') return viewPhoto(qs.get('m'), qs.get('pair'));
     if (path === '/n') return viewNut();

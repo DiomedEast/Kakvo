@@ -1,6 +1,6 @@
 /* Settings you can change without touching the app code. */
 window.KAKVO_CONFIG = {
-  VERSION: '0.1.6',
+  VERSION: '0.1.7',
   CONTACT: 'github.com/DiomedEast/kakvo',
   PRICE_LABEL: '19,99 € на година',
   /* Paste the Stripe Payment Link here when BonbelleGroup's Stripe account is ready.

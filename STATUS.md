@@ -1,6 +1,6 @@
 # Kakvo — project status (handoff note)
 
-Last updated: 3 November 2026, version 0.1.6. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
+Last updated: 3 November 2026, version 0.1.7. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
 
 ## What Kakvo is
 A free web app (PWA) for Bulgaria that explains what is in a food product in plain Bulgarian. Owner: Mo, sold by BonbelleGroup.
@@ -20,6 +20,11 @@ A free web app (PWA) for Bulgaria that explains what is in a food product in pla
 - Content lives in `data/explain.json`: 127 ingredients + 51 additives (the most common in Bulgaria). Fields: `w` what it is, `j` why it's there, `x` allergen (Reg. 1169/2011 Annex II), `n` notes with sources, `b`/`fr`/`en` extra label spellings, `v` variants (e.g. soy vs sunflower lecithin).
 - Rule: plain descriptions need no source; any health/legal claim must be a note with an official source (EU regulations, EFSA, WHO, Codex). Sources used so far: Reg. 1169/2011, 1334/2008, 231/2012, 2023/2108; EFSA (lecithins 2017, nitrites 2017, palm-oil contaminants 2016); WHO (salt, sugars 2015); Codex CXS 280 (anhydrous milk fat).
 - French labels are recognised for the explained items and the usual role words ("émulsifiant", "poudres à lever"…). "готварска сол" is now recognised (was unknown before).
+- v0.1.7, tested on a real label (Lidl Sondey cocoa biscuits, `tests/photos/sondey-biscuits-ingredients.jpg`): all 19 ingredients recognised, typed and from the photo.
+  - Brackets: "растителни масла (от палма, соя)" → palm oil + soybean oil (refined soybean oil is not an allergen, Annex II); "лецитини (соеви)" → soy allergen on E322.
+  - Footnotes: "*", "**", "***" definitions are linked to the starred ingredients and explained when we know the term (`gloss` in explain.json: "подово отглеждане", Rainforest Alliance, "устойчиво"…). From photos the stars become quote marks, so footnote lines are shown as "Етикетът пише" notes instead.
+  - Text before "Съставки:" (product name) is ignored; traces split per allergen; short OCR garbage dropped.
+  - Photo test: `tests/sondey-photo-e2e.js` (needs Tesseract files in /tmp/pk: `npm pack tesseract.js@7.0.0 tesseract.js-core@7 @tesseract.js-data/bul @tesseract.js-data/eng`, unpack dist/core to /tmp/pk/t, /tmp/pk/core and the .traineddata.gz files to /tmp/pk).
 - Not yet: kid-mode lines for ingredients, explanations for the remaining ~375 rarer ingredients and ~190 additives (they show "Още нямаме подробно обяснение").
 
 ## Paid plan (decided by Mo)

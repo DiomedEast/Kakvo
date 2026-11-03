@@ -96,6 +96,7 @@ h2 { font-weight: 800; font-size: 19px; letter-spacing: -0.01em; display: flex; 
 .addrow.warn .code { background: var(--redbg); color: var(--red); }
 .addrow b { display: block; }
 .addrow small { display: block; font-size: 14px; color: var(--muted); }
+.addrow small.lab { color: var(--g); font-weight: 600; margin-top: 2px; }
 .addrow small.al { color: var(--org); font-weight: 600; margin-top: 2px; }
 .addrow .code.grp { font-size: 11.5px; color: var(--ink); }
 .addrow .code.g-grain { background: #F3EBD9; } .addrow .code.g-sugar { background: var(--orgbg); } .addrow .code.g-fat, .addrow .code.g-palm, .addrow .code.g-trans { background: var(--butter); }
