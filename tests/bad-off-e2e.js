@@ -12,9 +12,14 @@ const product = { code: '4056489999990', product_name: 'Sondey Biscotti crema al
   additives_tags: ['en:e322', 'en:e500', 'en:e503'], allergens_tags: ['en:eggs', 'en:gluten', 'en:milk', 'en:nuts', 'en:soybeans'], traces_tags: ['en:mustard', 'en:nuts', 'en:peanuts'],
   nutriments: { 'energy-kcal_100g': 517, fat_100g: 25, 'saturated-fat_100g': 9.4, carbohydrates_100g: 65, sugars_100g: 34, proteins_100g: 6.4, salt_100g: 0.5 } };
 (async () => {
+  // Sharing: the app's CONTRIBUTE_URL points to the worker on :8791, which writes to a fake Open Food Facts on :8790.
+  const { fakeOff, serveWorker } = await import('./worker-local.mjs');
+  const offProducts = { [product.code]: {} }; const off = await fakeOff(8790, offProducts);
+  const wk = await serveWorker(8791, { OFF_BASE: 'http://localhost:8790', OFF_USER: 'kakvo-app', OFF_PASSWORD: 'secret', ALLOWED_ORIGINS: 'http://localhost:8765', APP_VERSION: 'test' });
   const b = await chromium.launch(); const p = await (await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 })).newPage();
   const errs = []; p.on('pageerror', e => errs.push(e.message));
   await p.route('https://fonts.googleapis.com/**', r => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+  await p.route('http://localhost:8765/js/config.js', async r => { const res = await r.fetch(); r.fulfill({ response: res, body: (await res.text()) + "\nwindow.KAKVO_CONFIG.CONTRIBUTE_URL = 'http://localhost:8791/';" }); });
   await p.route('https://world.openfoodfacts.org/api/**', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 1, product }) }));
   await p.route('https://cdn.jsdelivr.net/**', r => {
     const name = path.basename(new URL(r.request().url()).pathname);
@@ -36,13 +41,18 @@ const product = { code: '4056489999990', product_name: 'Sondey Biscotti crema al
   const d = await p.$eval('#cropview', c => { const b = c.getBoundingClientRect(); return { x: b.left, y: b.top, w: b.width, h: b.height }; });
   const X = v => d.x + v / 1500 * d.w, Y = v => d.y + v / 2000 * d.h;
   await p.mouse.move(X(80), Y(655)); await p.mouse.down(); await p.mouse.move(X(1185), Y(1180), { steps: 6 }); await p.mouse.up();
-  await p.click('#readbox'); await p.waitForSelector('#edit', { timeout: 280000 }); await p.click('#explain');
-  await p.waitForSelector('.addrow'); console.log('AFTER PHOTO URL:', p.url(), '| TITLE:', await p.textContent('h1'));
+  await p.click('#readbox'); await p.waitForSelector('#edit', { timeout: 280000 });
+  console.log('SHARE CHECKBOX:', await p.$eval('#shareoff', e => e.checked)); await (await p.$('.share-off')).screenshot({ path: '/tmp/shots/share-box.png' });
+  await p.click('#explain');
+  await p.waitForSelector('.addrow'); await p.waitForSelector('.toast', { timeout: 15000 }); console.log('TOAST:', await p.textContent('.toast'));
+  const up = off.log.find(x => x.path && x.path.includes('image_upload')); const txt = off.log.find(x => x.path && x.path.includes('jqm2'));
+  console.log('OFF GOT PHOTO:', up && up.fields.imagefield, up && up.fields.imgupload_ingredients_bg && up.fields.imgupload_ingredients_bg.size, 'bytes | TEXT:', txt && txt.fields.ingredients_text_bg.slice(0, 60));
+  console.log('AFTER PHOTO URL:', p.url(), '| TITLE:', await p.textContent('h1'));
   console.log('LEAD:', await p.textContent('.lead')); console.log('ROWS:', await p.$$eval('.addrow b', e => e.length), '| note:', await p.$eval('.note', e => e.textContent.trim()));
   await p.screenshot({ path: '/tmp/shots/after-photo.png' });
   // 4. Scan the same barcode again: explained straight away from the saved photo.
   await p.goto('http://localhost:8765/#/'); await p.waitForTimeout(300);
   await p.goto('http://localhost:8765/#/p/' + product.code); await p.waitForSelector('.addrow');
   console.log('SECOND SCAN ROWS:', await p.$$eval('.addrow b', e => e.length));
-  console.log('ERRORS:', errs); await b.close();
+  console.log('ERRORS:', errs); await b.close(); off.server.close(); wk.close();
 })();

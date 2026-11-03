@@ -83,6 +83,46 @@
     const keep = Object.keys(all).sort((x, y) => all[y].at - all[x].at).slice(0, 50);
     store.set('labels', Object.fromEntries(keep.map(k => [k, all[k]])));
   }
+  /* ---------- sharing with Open Food Facts (through worker/contribute.js) ---------- */
+  const deviceId = () => { let id = store.get('uuid', null); if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, ch => ((Math.random() * 16 | 0) & (ch === 'x' ? 15 : 3 | 8)).toString(16))); store.set('uuid', id); } return id; };
+  const canShare = () => !!CFG.CONTRIBUTE_URL;
+  /* The framed part of the label photo, as a JPEG Open Food Facts accepts (at least 640×160, at most 2000 px wide). */
+  function labelJpeg(src, box) {
+    let b = box ? Object.assign({}, box) : { x: 0, y: 0, w: src.width, h: src.height };
+    const pad = Math.round(Math.max(b.w, b.h) * 0.03); b = { x: b.x - pad, y: b.y - pad, w: b.w + 2 * pad, h: b.h + 2 * pad };
+    if (b.w < 640) { b.x -= (640 - b.w) / 2; b.w = 640; } if (b.h < 160) { b.y -= (160 - b.h) / 2; b.h = 160; }
+    b.x = Math.max(0, Math.round(b.x)); b.y = Math.max(0, Math.round(b.y)); b.w = Math.min(src.width - b.x, Math.round(b.w)); b.h = Math.min(src.height - b.y, Math.round(b.h));
+    const sc = Math.min(1, 2000 / b.w); const c = document.createElement('canvas'); c.width = Math.round(b.w * sc); c.height = Math.round(b.h * sc);
+    const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(src, b.x, b.y, b.w, b.h, 0, 0, c.width, c.height);
+    if (c.width < 640 || c.height < 160) return null;
+    return c.toDataURL('image/jpeg', 0.88).split(',')[1];
+  }
+  /* The camera reads the label's footnote stars as quote marks ("палма”"); don't send those to the shared database. */
+  const cleanForOff = s => s.replace(/(\p{L})[”“"]+/gu, '$1').replace(/(^|[\s.;])[”“"]+(?=\p{L})/gu, '$1').replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, ' ').trim();
+  async function sendContribution(item) {
+    const fd = new FormData(); fd.set('code', item.code); fd.set('text', item.text); fd.set('uuid', item.uuid);
+    fd.set('image', await (await fetch('data:image/jpeg;base64,' + item.image)).blob(), 'ingredients.jpg');
+    const r = await fetch(CFG.CONTRIBUTE_URL, { method: 'POST', body: fd });
+    const b = await r.json().catch(() => ({}));
+    if (r.ok && b.ok) return 'ok';
+    return r.status === 400 || r.status === 404 ? 'drop' : 'retry';
+  }
+  /* Send now; if offline or the server is busy, keep it (max 5) and try again on the next start. */
+  async function contribute(item) {
+    try {
+      const res = await sendContribution(item);
+      if (res === 'ok') return toast('Благодарим! Съставът вече е в Open Food Facts и ще помогне и на другите.');
+      if (res === 'retry') queue(item);
+    } catch (e) { queue(item); }
+  }
+  function queue(item) { const q = store.get('outbox', []).filter(x => x.code !== item.code); q.push(item); try { store.set('outbox', q.slice(-5)); } catch (e) { /* storage full */ } }
+  async function flushOutbox() {
+    if (!canShare()) return; const q = store.get('outbox', []); if (!q.length) return;
+    const left = [];
+    for (const item of q) { try { const r = await sendContribution(item); if (r === 'retry') left.push(item); } catch (e) { left.push(item); } }
+    store.set('outbox', left);
+  }
+
   const photoFor = () => { const pf = session.get('photoFor'); return pf && Date.now() - pf.at < 3600e3 ? pf : null; };
 
   function remember(item) {
@@ -204,7 +244,7 @@
     const all = al.length || traces.length ? `<div style="font-size:14px;color:var(--muted)">${al.length ? 'Алергени по данни: ' + esc(al.join(', ')) + '. ' : ''}${traces.length ? 'Може да съдържа следи от: ' + esc(traces.join(', ')) + '. ' : ''}Винаги проверявай етикета.</div>` : '';
     return `<div class="wrap">
       ${opts.badList ? `<div class="flag"><h3>Съставът в базата не е използваем</h3><p>За този продукт Open Food Facts няма четим списък със съставки (липсва или е въведен с грешки). Снимай състава на опаковката и ще го обясним съставка по съставка. Хранителните стойности от базата ще останат.</p><a class="btn green" id="photofor" href="#/photo" style="margin-top:6px">${icon('camera')}Снимай състава</a></div>` : ''}
-      ${opts.fromPhoto ? `<div class="note">Съставът е от твоята снимка на опаковката и е запазен само на този телефон. <a href="#/photo" id="rephoto">Снимай отново</a></div>` : ''}
+      ${opts.fromPhoto ? `<div class="note">Съставът е от твоята снимка на опаковката. <a href="#/photo" id="rephoto">Снимай отново</a></div>` : ''}
       ${opts.lang && opts.lang !== 'bg' ? `<div class="note">Няма български състав в базата, затова обясняваме ${opts.lang === 'en' ? 'английския' : 'френския'}.</div>` : ''}
       ${opts.unreadable ? `<p class="lead">Не успяхме да разчетем достатъчно от състава.</p><div class="note">Разпознахме само ${res.ing.size + res.add.size} от прочетените думи, затова не можем да кажем какво има в продукта. Снимай отблизо само българския текст или го напиши.<div class="grid2" style="margin-top:10px"><a class="btn outline" href="#/photo" style="min-height:44px;font-size:14px">Снимай отново</a><a class="btn outline" href="#/type" style="min-height:44px;font-size:14px">Напиши сам</a></div></div>` : `<p class="lead">${esc(E.summary(res, nut, kind, opts.badList))}</p>`}
       <button class="pillbtn" id="listen">${icon('speaker', 18)}Слушай обяснението ${isSupporter() ? '' : SUP}</button>
@@ -358,7 +398,12 @@
     const d = session.get('text');
     if (!d || !d.text) return go('#/type');
     const res = E.analyseText(d.text); const nut = d.nut || {}; const kind = d.kind || 'food';
-    if (d.code && E.readable(res)) { saveLabel(d.code, d.text, d.nut, d.kind); session.set('text', null); return location.replace('#/p/' + d.code); }
+    if (d.code && E.readable(res)) {
+      saveLabel(d.code, d.text, d.nut, d.kind);
+      const sh = session.get('share'); session.set('share', null);
+      if (canShare() && sh && sh.code === d.code && sh.image) contribute({ code: d.code, text: cleanForOff(d.text), image: sh.image, uuid: deviceId(), v: CFG.VERSION });
+      session.set('text', null); return location.replace('#/p/' + d.code);
+    }
     remember({ key: 't:' + d.text.slice(0, 60), name: d.name || 'Продукт от снимка', text: true, cubes: nut.sugar != null ? E.cubes(nut.sugar) : null, nAdd: res.add.size, warn: E.flagsFor(res).some(f => f.level === 'warn') });
     const shareData = { title: d.name || 'Продукт', nut, kind, res, text: E.summary(res, nut, kind) };
     view(header({ title: d.name || 'Твоят продукт', meta: 'От снимка или ръчно написан състав', back: '#/type' }) + productBody(res, nut, kind, { text: d.text, back: '#/t', serving: d.serving, unreadable: !E.readable(res) }) .replace('<div class="foot">', nutTableHtml(nut, kind) + '<div class="foot">'));
@@ -590,7 +635,8 @@
       ${unsureCount ? `<div style="font-size:14px;color:var(--org);font-weight:700">${unsureCount} ${unsureCount === 1 ? 'дума' : 'думи'} за проверка</div>` : ''}
       ${fixes.length ? `<div class="chips">${fixes.map((f, k) => `<button class="chip-btn pillbtn" style="border-color:var(--orgbar)" data-fix="${k}"><s style="color:var(--muted)">${esc(f.from)}</s> → <b>${esc(f.to)}</b></button>`).join('')}</div>` : ''}
       <div class="field"><label for="edit">Поправи, ако нещо е грешно</label><textarea id="edit" class="box" translate="no">${esc(editText)}</textarea></div>
-      <button class="btn green" id="explain">${pendingNut() ? 'Обясни състава' : 'Напред'}</button>
+      ${canShare() && photoFor() && photoMode === 'ing' && !en ? `<label class="share-off"><input type="checkbox" id="shareoff" ${store.get('shareOff', true) ? 'checked' : ''}><span><b>Сподели с Open Food Facts</b>Снимката на състава и поправеният текст ще помогнат на всеки, който сканира този продукт. Отиват в отворената база Open Food Facts под свободен лиценз, без твоето име.</span></label>` : ''}
+      <button class="btn green" id="explain">${pendingNut() || (photoFor() && photoFor().nut && photoFor().nut.sugar != null) ? 'Обясни състава' : 'Напред'}</button>
       <div class="grid2"><a class="btn outline" href="#/photo" style="min-height:46px;font-size:14px">Снимай отново</a><a class="btn outline" href="#/type" style="min-height:46px;font-size:14px">Напиши сам</a></div></div><div class="foot"></div>`);
     wireKind();
     const ta = document.getElementById('edit');
@@ -604,6 +650,8 @@
     document.getElementById('explain').addEventListener('click', () => {
       const pn = pendingNut();
       const pf = photoFor(); const forProduct = pf && pf.nut && pf.nut.sugar != null;
+      const so = document.getElementById('shareoff');
+      if (so) { store.set('shareOff', so.checked); session.set('share', so.checked ? { code: pf.code, image: labelJpeg(lastPhoto, lastBox) } : null); } else session.set('share', null);
       if (forProduct) { session.set('text', { text: ta.value, name: pf.name, nut: pf.nut, kind: pf.kind, serving: pf.serving, code: pf.code }); session.set('pair', null); session.set('photoFor', null); return go('#/t'); }
       session.set('text', { text: ta.value, name: pf ? pf.name : '', code: pf ? pf.code : null, nut: pn ? pn.nut : {}, kind: pn ? pn.kind : 'food', serving: pn ? pn.serving : null }); session.set('pair', null);
       go(pn ? '#/t' : '#/nutask');
@@ -922,6 +970,7 @@
     } catch (e) { app.innerHTML = '<div class="center"><h1>Kakvo не се зареди</h1><p>Провери интернета и опитай пак.</p></div>'; return; }
     window.addEventListener('hashchange', route);
     route();
+    setTimeout(flushOutbox, 4000);
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
     if ('speechSynthesis' in window) speechSynthesis.getVoices();
   }
