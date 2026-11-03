@@ -1,6 +1,6 @@
 # Kakvo — project status (handoff note)
 
-Last updated: 3 November 2026, version 0.1.8. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
+Last updated: 3 November 2026, version 0.1.9. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
 
 ## What Kakvo is
 A free web app (PWA) for Bulgaria that explains what is in a food product in plain Bulgarian. Owner: Mo, sold by BonbelleGroup.
@@ -26,6 +26,7 @@ A free web app (PWA) for Bulgaria that explains what is in a food product in pla
   - Text before "Съставки:" (product name) is ignored; traces split per allergen; short OCR garbage dropped.
   - Photo test: `tests/sondey-photo-e2e.js` (needs Tesseract files in /tmp/pk: `npm pack tesseract.js@7.0.0 tesseract.js-core@7 @tesseract.js-data/bul @tesseract.js-data/eng`, unpack dist/core to /tmp/pk/t, /tmp/pk/core and the .traineddata.gz files to /tmp/pk).
 - v0.1.8, found by Mo on the live site: some Open Food Facts entries have a broken ingredient list (Sondey biscuits: Italian OCR garbage, no Bulgarian text). Now: English/French list used if there is no Bulgarian one and it reads well; paragraph-long "ingredients" are never shown; if the list is unusable the page says so, hides the list and warnings, and "Снимай състава" keeps the product name and database nutrition (straight to the result, no table photo). Test: `tests/bad-off-e2e.js`.
+- v0.1.9 (Mo's decision): barcode with no Bulgarian list in Open Food Facts → "Снимай състава на опаковката" screen first (photo, type it, or "Виж само данните от базата" = `#/p/<code>?db=1`). The photo result keeps the product name and database nutrition, opens as the product page, and is saved on the phone per barcode (`localStorage kakvo_labels`, last 50), so the next scan is explained at once. Database additive/allergen tags are not mixed into a photo-based result. Not shared with other users or sent to Open Food Facts (would need a server/account).
 - Not yet: kid-mode lines for ingredients, explanations for the remaining ~375 rarer ingredients and ~190 additives (they show "Още нямаме подробно обяснение").
 
 ## Paid plan (decided by Mo)

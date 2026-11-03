@@ -76,6 +76,15 @@
 
   /* ---------- history & profiles ---------- */
   const FREE_HISTORY = 20;
+  /* Ingredient text the person photographed for a barcode, kept on this phone (last 50 products). */
+  const savedLabel = code => (store.get('labels', {})[code] || null);
+  function saveLabel(code, text, nut, kind) {
+    const all = store.get('labels', {}); all[code] = { t: text, at: Date.now(), nut: nut && Object.values(nut).some(v => v != null) ? nut : null, kind };
+    const keep = Object.keys(all).sort((x, y) => all[y].at - all[x].at).slice(0, 50);
+    store.set('labels', Object.fromEntries(keep.map(k => [k, all[k]])));
+  }
+  const photoFor = () => { const pf = session.get('photoFor'); return pf && Date.now() - pf.at < 3600e3 ? pf : null; };
+
   function remember(item) {
     let h = store.get('history', []).filter(x => x.key !== item.key);
     h.unshift(Object.assign({ ts: Date.now() }, item));
@@ -195,6 +204,7 @@
     const all = al.length || traces.length ? `<div style="font-size:14px;color:var(--muted)">${al.length ? 'Алергени по данни: ' + esc(al.join(', ')) + '. ' : ''}${traces.length ? 'Може да съдържа следи от: ' + esc(traces.join(', ')) + '. ' : ''}Винаги проверявай етикета.</div>` : '';
     return `<div class="wrap">
       ${opts.badList ? `<div class="flag"><h3>Съставът в базата не е използваем</h3><p>За този продукт Open Food Facts няма четим списък със съставки (липсва или е въведен с грешки). Снимай състава на опаковката и ще го обясним съставка по съставка. Хранителните стойности от базата ще останат.</p><a class="btn green" id="photofor" href="#/photo" style="margin-top:6px">${icon('camera')}Снимай състава</a></div>` : ''}
+      ${opts.fromPhoto ? `<div class="note">Съставът е от твоята снимка на опаковката и е запазен само на този телефон. <a href="#/photo" id="rephoto">Снимай отново</a></div>` : ''}
       ${opts.lang && opts.lang !== 'bg' ? `<div class="note">Няма български състав в базата, затова обясняваме ${opts.lang === 'en' ? 'английския' : 'френския'}.</div>` : ''}
       ${opts.unreadable ? `<p class="lead">Не успяхме да разчетем достатъчно от състава.</p><div class="note">Разпознахме само ${res.ing.size + res.add.size} от прочетените думи, затова не можем да кажем какво има в продукта. Снимай отблизо само българския текст или го напиши.<div class="grid2" style="margin-top:10px"><a class="btn outline" href="#/photo" style="min-height:44px;font-size:14px">Снимай отново</a><a class="btn outline" href="#/type" style="min-height:44px;font-size:14px">Напиши сам</a></div></div>` : `<p class="lead">${esc(E.summary(res, nut, kind, opts.badList))}</p>`}
       <button class="pillbtn" id="listen">${icon('speaker', 18)}Слушай обяснението ${isSupporter() ? '' : SUP}</button>
@@ -230,13 +240,20 @@
   }
 
   /* ---------- views ---------- */
-  async function viewProduct(code, kidMode) {
+  async function viewProduct(code, kidMode, dbOnly) {
     view(`<div class="center"><div class="spinner" aria-hidden="true"></div><p>Търсим продукта…</p></div>`);
     let p;
     try { p = await fetchProduct(code); } catch (e) {
       return view(`<div class="topbar"><a class="rbtn soft" href="#/" aria-label="Назад">${icon('back')}</a></div><div class="center"><h1 style="font-size:24px">Няма връзка</h1><p>Не успяхме да стигнем до базата с продукти. Провери интернета и опитай пак.</p><button class="btn green" onclick="location.reload()">Опитай пак</button><a class="btn ghost" href="#/type">Напиши състава ръчно</a></div>`);
     }
     if (!p) { session.set('pendingCode', code); return go('#/notfound/' + encodeURIComponent(code)); }
+    const saved = !p.ingredients_text_bg && savedLabel(code);
+    if (saved) {
+      p = Object.assign({}, p, { ingredients_text_bg: saved.t, ingredients: [], additives_tags: [], fromPhoto: true });
+      const db = nutOf(p);
+      if (saved.nut && db.sugar == null && db.sat == null && db.salt == null) p.nutriments = { sugars_100g: saved.nut.sugar, 'saturated-fat_100g': saved.nut.sat, salt_100g: saved.nut.salt, _fromPhoto: true };
+    }
+    if (!p.ingredients_text_bg && !dbOnly) return viewAskPhoto(code, p, kidMode);
     const res = E.analyseProduct(p); const nut = nutOf(p); const kind = isDrink(p) ? 'drink' : 'food';
     const name = p.product_name_bg || p.product_name || 'Продукт ' + code;
     const meta = [p.brands, p.quantity].filter(Boolean).join(' · ');
@@ -245,10 +262,28 @@
     const top = header({ title: name, meta, img: p.image_front_small_url, back: '#/', toggle: { me: '#/p/' + code, kid: '#/k/' + code, on: kidMode ? 'kid' : 'me' } });
     if (kidMode) return renderKid(top, res, nut, kind, shareData);
     const usable = E.readable(res);
-    view(top + productBody(res, nut, kind, { text: res.text, serving: +p.serving_quantity || null, code, back: '#/p/' + code, allergens: allergens(p.allergens_tags), traces: allergens(p.traces_tags), badList: !usable, lang: res.lang }));
+    view(top + productBody(res, nut, kind, { text: res.text, serving: +p.serving_quantity || null, code, back: '#/p/' + code, allergens: p.fromPhoto ? [] : allergens(p.allergens_tags), traces: p.fromPhoto ? [] : allergens(p.traces_tags), badList: !usable, lang: res.lang, fromPhoto: p.fromPhoto }));
     wireProduct(res, nut, kind, shareData);
     const ph = document.getElementById('photofor');
     if (ph) ph.addEventListener('click', () => session.set('photoFor', { name, nut, kind, serving: +p.serving_quantity || null, code, at: Date.now() }));
+    const re = document.getElementById('rephoto');
+    if (re) re.addEventListener('click', () => session.set('photoFor', { name, nut, kind, serving: +p.serving_quantity || null, code, at: Date.now() }));
+  }
+
+  function viewAskPhoto(code, p, kidMode) {
+    const name = p.product_name_bg || p.product_name || 'Продукт ' + code; const nut = nutOf(p); const kind = isDrink(p) ? 'drink' : 'food';
+    const meta = [p.brands, p.quantity].filter(Boolean).join(' · ');
+    const pf = { name, nut, kind, serving: +p.serving_quantity || null, code, at: Date.now() };
+    view(header({ title: name, meta, img: p.image_front_small_url, back: '#/' }) + `<div class="wrap">
+      <h1 style="font-size:25px;font-weight:900">Снимай състава на опаковката</h1>
+      <p style="margin:0;font-size:16px;line-height:1.5">Намерихме продукта, но в базата няма български списък със съставки. Снимай го и ще ти обясним всяка съставка.${nut.sugar != null ? ' Захарта и стойностите от базата ще бъдат включени.' : ''}</p>
+      <div class="note">Снимай само българския текст след „Съставки:“. Телефонът ще го запомни: следващия път този баркод ще се обясни веднага.</div>
+      <a class="btn green" href="#/photo" data-pf>${icon('camera')}Снимай състава</a>
+      <a class="btn outline" href="#/type" data-pf>${icon('pen')}Напиши го сам</a>
+      <a class="btn ghost" href="#/${kidMode ? 'k' : 'p'}/${esc(code)}?db=1">Виж само данните от базата</a>
+      </div>${FOOT(code)}`);
+    document.querySelectorAll('[data-pf]').forEach(b => b.addEventListener('click', () => session.set('photoFor', pf)));
+    const sh = document.getElementById('share'); if (sh) sh.addEventListener('click', () => shareSheet({ title: name, code, nut, kind, res: E.analyseText(''), text: '' }));
   }
 
   function renderKid(top, res, nut, kind, shareData) {
@@ -323,6 +358,7 @@
     const d = session.get('text');
     if (!d || !d.text) return go('#/type');
     const res = E.analyseText(d.text); const nut = d.nut || {}; const kind = d.kind || 'food';
+    if (d.code && E.readable(res)) { saveLabel(d.code, d.text, d.nut, d.kind); session.set('text', null); return location.replace('#/p/' + d.code); }
     remember({ key: 't:' + d.text.slice(0, 60), name: d.name || 'Продукт от снимка', text: true, cubes: nut.sugar != null ? E.cubes(nut.sugar) : null, nAdd: res.add.size, warn: E.flagsFor(res).some(f => f.level === 'warn') });
     const shareData = { title: d.name || 'Продукт', nut, kind, res, text: E.summary(res, nut, kind) };
     view(header({ title: d.name || 'Твоят продукт', meta: 'От снимка или ръчно написан състав', back: '#/type' }) + productBody(res, nut, kind, { text: d.text, back: '#/t', serving: d.serving, unreadable: !E.readable(res) }) .replace('<div class="foot">', nutTableHtml(nut, kind) + '<div class="foot">'));
@@ -345,8 +381,8 @@
   function wireKind() { document.querySelectorAll('[data-kind]').forEach(b => b.addEventListener('click', () => { document.querySelectorAll('[data-kind]').forEach(x => x.classList.toggle('on', x === b)); })); }
 
   function viewType(prefill) {
-    const prev = session.get('text') || {};
-    const text = prefill != null ? prefill : (prev.text || '');
+    const pfx = photoFor(); const prev = pfx ? { name: pfx.name } : (session.get('text') || {});
+    const text = prefill != null ? prefill : (pfx ? '' : (prev.text || ''));
     view(`<div class="topbar"><a class="rbtn soft" href="#/" aria-label="Затвори">${icon('close')}</a><b>Напиши съставките</b></div>
       <div class="wrap"><p style="margin:0;color:var(--muted)">Препиши ги от опаковката. Не е нужно да са перфектни: разпознаваме и Е-номера.</p>
       <div class="field"><label for="pname">Име на продукта (по желание)</label><input id="pname" value="${esc(prev.name || '')}" placeholder="напр. бисквити"></div>
@@ -364,7 +400,9 @@
     ta.addEventListener('input', live); live();
     document.getElementById('explain').addEventListener('click', () => {
       if (!ta.value.trim()) { ta.focus(); return toast('Напиши поне една съставка.'); }
-      const n = readNut(); session.set('text', { text: ta.value, name: document.getElementById('pname').value.trim(), nut: n.nut, kind: n.kind });
+      const n = readNut(); const pf = photoFor(); const typedNut = Object.values(n.nut).some(v => v != null);
+      session.set('text', { text: ta.value, name: document.getElementById('pname').value.trim() || (pf ? pf.name : ''), nut: !typedNut && pf ? pf.nut : n.nut, kind: !typedNut && pf ? pf.kind : n.kind, serving: pf ? pf.serving : null, code: pf ? pf.code : null });
+      session.set('photoFor', null);
       go('#/t');
     });
   }
@@ -565,9 +603,9 @@
     }));
     document.getElementById('explain').addEventListener('click', () => {
       const pn = pendingNut();
-      const pf = session.get('photoFor'); const forProduct = pf && Date.now() - pf.at < 3600e3 && pf.nut && pf.nut.sugar != null;
-      if (forProduct) { session.set('text', { text: ta.value, name: pf.name, nut: pf.nut, kind: pf.kind, serving: pf.serving }); session.set('pair', null); session.set('photoFor', null); return go('#/t'); }
-      session.set('text', { text: ta.value, name: pf ? pf.name : '', nut: pn ? pn.nut : {}, kind: pn ? pn.kind : 'food', serving: pn ? pn.serving : null }); session.set('pair', null);
+      const pf = photoFor(); const forProduct = pf && pf.nut && pf.nut.sugar != null;
+      if (forProduct) { session.set('text', { text: ta.value, name: pf.name, nut: pf.nut, kind: pf.kind, serving: pf.serving, code: pf.code }); session.set('pair', null); session.set('photoFor', null); return go('#/t'); }
+      session.set('text', { text: ta.value, name: pf ? pf.name : '', code: pf ? pf.code : null, nut: pn ? pn.nut : {}, kind: pn ? pn.kind : 'food', serving: pn ? pn.serving : null }); session.set('pair', null);
       go(pn ? '#/t' : '#/nutask');
     });
   }
@@ -858,8 +896,8 @@
     const [path, query] = h.split('?'); const qs = new URLSearchParams(query || '');
     let m;
     if (path === '/' || path === '') return viewScan();
-    if ((m = /^\/p\/(\d{6,14})$/.exec(path))) return viewProduct(m[1], false);
-    if ((m = /^\/k\/(\d{6,14})$/.exec(path))) return viewProduct(m[1], true);
+    if ((m = /^\/p\/(\d{6,14})$/.exec(path))) return viewProduct(m[1], false, qs.get('db') === '1');
+    if ((m = /^\/k\/(\d{6,14})$/.exec(path))) return viewProduct(m[1], true, qs.get('db') === '1');
     if ((m = /^\/a\/([A-Z0-9]+)$/.exec(path))) return viewAdditive(m[1], qs.get('from'), qs.get('c'), qs.get('l'));
     if ((m = /^\/i\/([a-z0-9-]+)$/.exec(path))) return viewIngredient(m[1], qs.get('from'), qs.get('l'));
     if ((m = /^\/notfound\/(\d+)$/.exec(path))) return viewNotFound(m[1]);
