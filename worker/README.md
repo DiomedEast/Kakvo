@@ -25,7 +25,20 @@ Until `CONTRIBUTE_URL` is set in `js/config.js`, the checkbox is hidden and noth
    form linked from https://openfoodfacts.github.io/openfoodfacts-server/api/ so they know who Kakvo is.
    For the test server (https://world.openfoodfacts.net) you need a second account created there.
 2. **Cloudflare account** (free plan is enough to start): https://dash.cloudflare.com/sign-up
-3. **Deploy** (needs Node.js on the computer):
+3. **Deploy from the Cloudflare website** (no Terminal needed):
+   1. Cloudflare dashboard → **Workers & Pages** → **Create** → start from the **Hello World** worker.
+      Name it `kakvo-contribute` → **Deploy**.
+   2. **Edit code** → delete everything → paste all of
+      https://github.com/DiomedEast/Kakvo/blob/main/worker/contribute.js (the "Copy raw file" button) → **Deploy**.
+   3. Worker → **Settings** → **Variables and Secrets** → add:
+      - Text `OFF_BASE` = `https://world.openfoodfacts.net`
+      - Text `ALLOWED_ORIGINS` = `https://diomedeast.github.io`
+      - Text `APP_VERSION` = `0.2.0`
+      - **Secret** `OFF_USER` = the app account user name (not the e-mail)
+      - **Secret** `OFF_PASSWORD` = its password
+   4. The worker address is shown on its page, like `https://kakvo-contribute.<your-name>.workers.dev`.
+
+   Or, from a Terminal with Node.js:
    ```
    cd worker
    npx wrangler login
@@ -37,8 +50,8 @@ Until `CONTRIBUTE_URL` is set in `js/config.js`, the checkbox is hidden and noth
 4. **Connect the app:** paste that address into `js/config.js` → `CONTRIBUTE_URL`, bump `CACHE` in `sw.js`, push.
 5. **Go live:** `wrangler.toml` starts on the Open Food Facts **test** server. It only accepts barcodes that
    exist on the test server, so most real scans answer "product not found" there. When one test works,
-   set `OFF_BASE = "https://world.openfoodfacts.org"`, put the live account's user name and password in the
-   secrets, and run `npx wrangler deploy` again.
+   set `OFF_BASE` to `https://world.openfoodfacts.org`, put the live account's user name and password in the
+   secrets, and deploy again (dashboard: save the variables; Terminal: `npx wrangler deploy`).
 
 ## Tests (no real Open Food Facts needed)
 - `node tests/worker.test.mjs` — the worker against a fake Open Food Facts.
