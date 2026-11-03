@@ -68,6 +68,14 @@ t('real label: Lidl Sondey cocoa biscuits (typed and as read from the photo)', (
   assert.strictEqual(it.find(x => x.t === 'palm-oil').label, 'От устойчиво производство');
   assert.ok(E.summary(E.analyseText(typed), null, 'food').includes('палмово масло'));
 });
+t('broken database entry: garbled list is not shown, English list used when there is no Bulgarian one', () => {
+  const bad = E.analyseProduct({ ingredients: [{ id: 'it:x', text: 'Sondey Biscotti crema al cioccolato Delcerri al casas no 40% ripiene di c YS' }, { id: 'it:y', text: 'Xostenereta and Alliance.che with a promovere un agrishora' }], additives_tags: ['en:e322'] });
+  assert.strictEqual(E.items(bad).filter(x => x.k === 'unk').length, 0);
+  assert.strictEqual(E.readable(bad), false);
+  assert.ok(E.summary(bad, { sugar: 34 }, 'food', true).includes('не е наличен'));
+  const en = E.analyseProduct({ ingredients_text_en: 'Wheat flour, sugar, palm oil, emulsifier: soya lecithin, salt, raising agents: sodium carbonates, ammonium carbonates.' });
+  assert.strictEqual(en.lang, 'en'); assert.ok(E.readable(en)); assert.ok(en.add.has('E503'));
+});
 t('OFF additive tags', () => {
   assert.strictEqual(E.offAdditive('en:e500ii'), 'E500');
   assert.strictEqual(E.offAdditive('en:e160a'), 'E160A');

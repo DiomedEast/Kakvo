@@ -54,7 +54,7 @@
   function view(html, dark) { stopCamera(); setDark(dark); app.innerHTML = html; window.scrollTo(0, 0); }
 
   /* ---------- data ---------- */
-  const OFF_FIELDS = 'code,product_name,product_name_bg,brands,quantity,ingredients_text_bg,ingredients,additives_tags,nutriments,serving_quantity,serving_size,categories_tags,image_front_small_url,allergens_tags,traces_tags';
+  const OFF_FIELDS = 'code,product_name,product_name_bg,brands,quantity,ingredients_text_bg,ingredients_text_en,ingredients_text_fr,ingredients,additives_tags,nutriments,serving_quantity,serving_size,categories_tags,image_front_small_url,allergens_tags,traces_tags';
   async function fetchProduct(code) {
     const cached = session.get('p_' + code); if (cached) return cached;
     const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${OFF_FIELDS}&app_name=Kakvo&app_version=${encodeURIComponent(CFG.VERSION || '0.1')}`;
@@ -194,15 +194,17 @@
     const al = opts.allergens || [];
     const all = al.length || traces.length ? `<div style="font-size:14px;color:var(--muted)">${al.length ? 'Алергени по данни: ' + esc(al.join(', ')) + '. ' : ''}${traces.length ? 'Може да съдържа следи от: ' + esc(traces.join(', ')) + '. ' : ''}Винаги проверявай етикета.</div>` : '';
     return `<div class="wrap">
-      ${opts.unreadable ? `<p class="lead">Не успяхме да разчетем достатъчно от състава.</p><div class="note">Разпознахме само ${res.ing.size + res.add.size} от прочетените думи, затова не можем да кажем какво има в продукта. Снимай отблизо само българския текст или го напиши.<div class="grid2" style="margin-top:10px"><a class="btn outline" href="#/photo" style="min-height:44px;font-size:14px">Снимай отново</a><a class="btn outline" href="#/type" style="min-height:44px;font-size:14px">Напиши сам</a></div></div>` : `<p class="lead">${esc(E.summary(res, nut, kind))}</p>`}
+      ${opts.badList ? `<div class="flag"><h3>Съставът в базата не е използваем</h3><p>За този продукт Open Food Facts няма четим списък със съставки (липсва или е въведен с грешки). Снимай състава на опаковката и ще го обясним съставка по съставка. Хранителните стойности от базата ще останат.</p><a class="btn green" id="photofor" href="#/photo" style="margin-top:6px">${icon('camera')}Снимай състава</a></div>` : ''}
+      ${opts.lang && opts.lang !== 'bg' ? `<div class="note">Няма български състав в базата, затова обясняваме ${opts.lang === 'en' ? 'английския' : 'френския'}.</div>` : ''}
+      ${opts.unreadable ? `<p class="lead">Не успяхме да разчетем достатъчно от състава.</p><div class="note">Разпознахме само ${res.ing.size + res.add.size} от прочетените думи, затова не можем да кажем какво има в продукта. Снимай отблизо само българския текст или го напиши.<div class="grid2" style="margin-top:10px"><a class="btn outline" href="#/photo" style="min-height:44px;font-size:14px">Снимай отново</a><a class="btn outline" href="#/type" style="min-height:44px;font-size:14px">Напиши сам</a></div></div>` : `<p class="lead">${esc(E.summary(res, nut, kind, opts.badList))}</p>`}
       <button class="pillbtn" id="listen">${icon('speaker', 18)}Слушай обяснението ${isSupporter() ? '' : SUP}</button>
       ${avoidHtml(res, opts.text)}
       ${tilesHtml(nut, kind, !opts.code)}
       ${sugarHtml(nut, kind, opts.serving)}
       ${calcHtml(nut, kind)}
-      ${flags.length ? '<div style="display:flex;flex-direction:column;gap:10px"><h2>Важно да знаеш</h2>' + flags.map(flagHtml).join('') + '</div>' : ''}
-      ${groupsHtml(res)}
-      ${itemsHtml(res, opts.back)}
+      ${flags.length && !opts.badList ? '<div style="display:flex;flex-direction:column;gap:10px"><h2>Важно да знаеш</h2>' + flags.map(flagHtml).join('') + '</div>' : ''}
+      ${opts.badList ? '' : groupsHtml(res)}
+      ${opts.badList ? '' : itemsHtml(res, opts.back)}
       ${labelHtml(opts.text, res)}
       ${all}
       <button class="btn dark" id="share2">${icon('share')}Сподели със семейството</button>
@@ -242,8 +244,11 @@
     remember({ key: code, code, name, cubes: nut.sugar != null ? E.cubes(nut.sugar) : null, nAdd: res.add.size, warn: E.flagsFor(res).some(f => f.level === 'warn') });
     const top = header({ title: name, meta, img: p.image_front_small_url, back: '#/', toggle: { me: '#/p/' + code, kid: '#/k/' + code, on: kidMode ? 'kid' : 'me' } });
     if (kidMode) return renderKid(top, res, nut, kind, shareData);
-    view(top + productBody(res, nut, kind, { text: p.ingredients_text_bg, serving: +p.serving_quantity || null, code, back: '#/p/' + code, allergens: allergens(p.allergens_tags), traces: allergens(p.traces_tags) }));
+    const usable = E.readable(res);
+    view(top + productBody(res, nut, kind, { text: res.text, serving: +p.serving_quantity || null, code, back: '#/p/' + code, allergens: allergens(p.allergens_tags), traces: allergens(p.traces_tags), badList: !usable, lang: res.lang }));
     wireProduct(res, nut, kind, shareData);
+    const ph = document.getElementById('photofor');
+    if (ph) ph.addEventListener('click', () => session.set('photoFor', { name, nut, kind, serving: +p.serving_quantity || null, code, at: Date.now() }));
   }
 
   function renderKid(top, res, nut, kind, shareData) {
@@ -560,7 +565,9 @@
     }));
     document.getElementById('explain').addEventListener('click', () => {
       const pn = pendingNut();
-      session.set('text', { text: ta.value, name: '', nut: pn ? pn.nut : {}, kind: pn ? pn.kind : 'food', serving: pn ? pn.serving : null }); session.set('pair', null);
+      const pf = session.get('photoFor'); const forProduct = pf && Date.now() - pf.at < 3600e3 && pf.nut && pf.nut.sugar != null;
+      if (forProduct) { session.set('text', { text: ta.value, name: pf.name, nut: pf.nut, kind: pf.kind, serving: pf.serving }); session.set('pair', null); session.set('photoFor', null); return go('#/t'); }
+      session.set('text', { text: ta.value, name: pf ? pf.name : '', nut: pn ? pn.nut : {}, kind: pn ? pn.kind : 'food', serving: pn ? pn.serving : null }); session.set('pair', null);
       go(pn ? '#/t' : '#/nutask');
     });
   }
@@ -647,6 +654,7 @@
   function found(code) { if (navigator.vibrate) try { navigator.vibrate(40); } catch (e) { /* ignore */ } stopCamera(); go('#/p/' + code); }
 
   function viewScan() {
+    session.set('photoFor', null);
     const recent = store.get('history', []).slice(0, 3);
     const pillFor = h => h.warn ? '<span class="pill p-r">за внимание</span>' : h.cubes != null ? `<span class="pill p-o">${fmt(h.cubes)} ${h.cubes === 1 ? 'бучка' : 'бучки'}</span>` : `<span class="pill p-g">${h.nAdd} добавки</span>`;
     view(`<div class="scan"><div class="top">${LOGO}<a class="rbtn darkbtn" href="#/history" aria-label="История">${icon('history')}</a></div>

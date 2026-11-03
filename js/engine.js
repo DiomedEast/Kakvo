@@ -237,20 +237,29 @@
 
     /* Analyse an Open Food Facts product: ingredient/additive codes first, Bulgarian label text on top. */
     function analyseProduct(p) {
-      const res = emptyResult();
-      const text = p.ingredients_text_bg || '';
+      let res = emptyResult();
+      /* Bulgarian list first; else an English or French one if we can read it well. */
+      let text = p.ingredients_text_bg || ''; let lang = text ? 'bg' : null;
       if (text) analyseText(text, res);
+      else for (const [l, t] of [['en', p.ingredients_text_en], ['fr', p.ingredients_text_fr]]) {
+        if (!t) continue; const r = analyseText(t);
+        if (readable(r) && r.unk.length <= Math.max(2, (r.ing.size + r.add.size) / 3)) { res = r; text = t; lang = l; break; }
+      }
       const walk = (list, top) => (list || []).forEach(it => {
         const tag = (it.id || '').replace(/^[a-z]{2}:/, '');
         const x = ING.get(tag); const c = /^en:e\d/.test(it.id || '') ? offAdditive(it.id) : null;
         if (x) { if (!res.ing.has(x.t)) res.ing.set(x.t, x); if (top && !text) res.order.push(x); if (!text) pushSeq(res, { k: 'ing', t: x.t }); }
         else if (c) { if (!text) { if (!res.add.has(c)) res.add.set(c, it.text || c); pushSeq(res, { k: 'add', c }); } }
-        else if (top && !text && it.text) { res.unk.push(it.text); pushSeq(res, { k: 'unk', s: it.text }); }
+        else if (top && !text && it.text) {
+          /* A broken database entry gives whole paragraphs as one "ingredient": count it, never show it. */
+          if (it.text.length > 40 || it.text.split(/\s+/).length > 5) res.garbled = (res.garbled || 0) + 1;
+          else { res.unk.push(it.text); pushSeq(res, { k: 'unk', s: it.text }); }
+        }
         walk(it.ingredients, false);
       });
       walk(p.ingredients, true);
       (p.additives_tags || []).forEach(t => { const c = offAdditive(t); if (c) { if (!res.add.has(c)) res.add.set(c, c); pushSeq(res, { k: 'add', c }); } });
-      res.text = text;
+      res.text = text; res.lang = lang;
       return res;
     }
 
@@ -280,7 +289,7 @@
     }
 
     /* One-paragraph plain summary. Only facts from the data, no verdict. */
-    function summary(res, nut, kind) {
+    function summary(res, nut, kind, noList) {
       const parts = [];
       const unit = kind === 'drink' ? 'мл' : 'г';
       if (nut && nut.sugar != null) {
@@ -288,6 +297,7 @@
         const c = cubes(nut.sugar);
         parts.push(`${LEVEL_WORD[lv]} съдържание на захар: ${fmt(nut.sugar)} г на 100 ${unit}, около ${fmt(c)} ${c === 1 ? 'бучка' : 'бучки'}.`);
       }
+      if (noList) { parts.push('Съставът не е наличен, затова още не знаем какви добавки има.'); return parts.join(' '); }
       const n = res.add.size;
       if (n === 0) parts.push('Без добавки с Е-номер.');
       else { const p = purposes(res); parts.push(`${n} ${n === 1 ? 'добавка' : 'добавки'}${p.length ? ', главно за ' + p.join(' и ') : ''}.`); }
@@ -440,7 +450,7 @@
 
     /* Did we understand enough of the text to give an answer? Guards against confident results on OCR garbage. */
     function readable(res) {
-      const known = res.ing.size + res.add.size; const unk = res.unk.length;
+      const known = res.ing.size + res.add.size; const unk = res.unk.length + 3 * (res.garbled || 0);
       return known >= 2 && known / Math.max(1, known + unk) >= 0.35;
     }
 

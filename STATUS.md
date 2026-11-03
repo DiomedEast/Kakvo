@@ -1,6 +1,6 @@
 # Kakvo — project status (handoff note)
 
-Last updated: 3 November 2026, version 0.1.7. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
+Last updated: 3 November 2026, version 0.1.8. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
 
 ## What Kakvo is
 A free web app (PWA) for Bulgaria that explains what is in a food product in plain Bulgarian. Owner: Mo, sold by BonbelleGroup.
@@ -25,6 +25,7 @@ A free web app (PWA) for Bulgaria that explains what is in a food product in pla
   - Footnotes: "*", "**", "***" definitions are linked to the starred ingredients and explained when we know the term (`gloss` in explain.json: "подово отглеждане", Rainforest Alliance, "устойчиво"…). From photos the stars become quote marks, so footnote lines are shown as "Етикетът пише" notes instead.
   - Text before "Съставки:" (product name) is ignored; traces split per allergen; short OCR garbage dropped.
   - Photo test: `tests/sondey-photo-e2e.js` (needs Tesseract files in /tmp/pk: `npm pack tesseract.js@7.0.0 tesseract.js-core@7 @tesseract.js-data/bul @tesseract.js-data/eng`, unpack dist/core to /tmp/pk/t, /tmp/pk/core and the .traineddata.gz files to /tmp/pk).
+- v0.1.8, found by Mo on the live site: some Open Food Facts entries have a broken ingredient list (Sondey biscuits: Italian OCR garbage, no Bulgarian text). Now: English/French list used if there is no Bulgarian one and it reads well; paragraph-long "ingredients" are never shown; if the list is unusable the page says so, hides the list and warnings, and "Снимай състава" keeps the product name and database nutrition (straight to the result, no table photo). Test: `tests/bad-off-e2e.js`.
 - Not yet: kid-mode lines for ingredients, explanations for the remaining ~375 rarer ingredients and ~190 additives (they show "Още нямаме подробно обяснение").
 
 ## Paid plan (decided by Mo)
