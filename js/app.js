@@ -505,8 +505,7 @@
       ${unsureCount ? `<div style="font-size:14px;color:var(--org);font-weight:700">${unsureCount} ${unsureCount === 1 ? 'дума' : 'думи'} за проверка</div>` : ''}
       ${fixes.length ? `<div class="chips">${fixes.map((f, k) => `<button class="chip-btn pillbtn" style="border-color:var(--orgbar)" data-fix="${k}"><s style="color:var(--muted)">${esc(f.from)}</s> → <b>${esc(f.to)}</b></button>`).join('')}</div>` : ''}
       <div class="field"><label for="edit">Поправи, ако нещо е грешно</label><textarea id="edit" class="box" translate="no">${esc(editText)}</textarea></div>
-      ${pendingNut() ? '' : nutFields()}
-      <button class="btn green" id="explain">Обясни състава</button>
+      <button class="btn green" id="explain">${pendingNut() ? 'Обясни състава' : 'Напред'}</button>
       <div class="grid2"><a class="btn outline" href="#/photo" style="min-height:46px;font-size:14px">Снимай отново</a><a class="btn outline" href="#/type" style="min-height:46px;font-size:14px">Напиши сам</a></div></div><div class="foot"></div>`);
     wireKind();
     const ta = document.getElementById('edit');
@@ -518,8 +517,9 @@
       b.remove();
     }));
     document.getElementById('explain').addEventListener('click', () => {
-      const pn = pendingNut(); const n = pn || readNut();
-      session.set('text', { text: ta.value, name: '', nut: n.nut, kind: n.kind, serving: n.serving }); session.set('pair', null); go('#/t');
+      const pn = pendingNut();
+      session.set('text', { text: ta.value, name: '', nut: pn ? pn.nut : {}, kind: pn ? pn.kind : 'food', serving: pn ? pn.serving : null }); session.set('pair', null);
+      go(pn ? '#/t' : '#/nutask');
     });
   }
 
@@ -566,6 +566,18 @@
   function nutTableHtml(nut, kind) {
     const have = NUT_FIELDS.filter(([k]) => nut[k] != null); if (have.length < 2) return '';
     return `<div class="wrap" style="padding-top:0"><div class="card"><h2>Хранителни стойности на 100 ${kind === 'drink' ? 'мл' : 'г'}</h2>${have.map(([k, name, u]) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--line)"><span>${name}</span><b>${fmt(nut[k])} ${u}</b></div>`).join('')}</div></div>`;
+  }
+
+  /* After the ingredients: ask for the nutrition table, the only place sugar, fat and salt amounts are. */
+  function viewNutAsk() {
+    const t = session.get('text'); if (!t || !t.text) return go('#/photo');
+    view(`<div class="topbar"><a class="rbtn soft" href="#/crop" aria-label="Назад">${icon('back')}</a><b>Още една снимка</b></div>
+      <div class="wrap"><ol class="steps" style="padding:0"><li class="done"><span></span>1 Състав</li><li class="cur"><span></span>2 Таблица</li><li><span></span>3 Обяснение</li></ol>
+      <h1 style="font-size:25px;font-weight:900">Снимай и таблицата „Хранителни стойности“</h1>
+      <p style="margin:0;color:var(--muted)">Съставът казва какви добавки има. Колко захар, наситени мазнини и сол има, пише само в таблицата. С нея ще видиш и бучките захар.</p>
+      <div class="note">Таблицата обикновено е до състава, с колони „на 100 г“ и „на порция“. Езикът няма значение, четем само числата.</div>
+      <a class="btn green" href="#/photo?m=nut&pair=t">${icon('camera')}Снимай таблицата</a>
+      <a class="btn outline" href="#/t">Пропусни</a></div><div class="foot"></div>`);
   }
 
   function viewNut() {
@@ -773,6 +785,7 @@
     if ((m = /^\/notfound\/(\d+)$/.exec(path))) return viewNotFound(m[1]);
     if (path === '/photo') return viewPhoto(qs.get('m'), qs.get('pair'));
     if (path === '/n') return viewNut();
+    if (path === '/nutask') return viewNutAsk();
     if (path === '/crop') return viewCrop();
     if (path === '/type') return viewType();
     if (path === '/t') return viewText();
