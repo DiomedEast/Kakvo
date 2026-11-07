@@ -463,9 +463,9 @@
     const NUT_ORDER7 = ['fat', 'sat', 'carbs', 'sugar', 'fibre', 'protein', 'salt'];
     const NUT_ORDER6 = ['fat', 'sat', 'carbs', 'sugar', 'protein', 'salt'];
     const NUT_WORDS = {
-      sat: /наситен|saturat|mättat|zasi[cć]en|satura|κορεσμ/i, sugar: /захари|sugars|socker|še[cć]er|zahar|σάκχαρ/i,
-      fibre: /влакнин|fib(re|er)|vlakn|ballast|εδώδιμ/i, protein: /белтъц|protein|bjelan|beljak|πρωτε/i, salt: /(^|[^a-zа-я])(сол|salt|sol|sare|αλάτι)([^a-zа-я]|$)/i,
-      carbs: /въглехидрат|carbohydr|kolhydrat|ugljikohidr|ugljeni|glucide|υδατάνθρ/i, fat: /мазнини|(^|\W)fat(\W|$)|fett|masti|gr[aă]simi|λιπαρ/i
+      sat: /наситен|saturat|mättat|zasi[cć]en|satura|κορεσμ|verzadig|ges[äa]ttigt|saturad|satur[ée]|saturi/i, sugar: /захари|sugars|socker|še[cć]er|zahar|σάκχαρ|zucker|suiker|az[uú]car|sucres|zuccheri|cukr/i,
+      fibre: /влакнин|fib(re|er)|vlakn|ballast|εδώδιμ|vezel|fibra/i, protein: /белтъц|protein|bjelan|beljak|πρωτε|eiwei|eiwit|prote[ií]n/i, salt: /(^|[^a-zа-я])(сол|salt|sol|sare|αλάτι|salz|zout|sal|sel|sale)([^a-zа-я]|$)/i,
+      carbs: /въглехидрат|carbohydr|kolhydrat|ugljikohidr|ugljeni|glucide|υδατάνθρ|kohlenhydrat|koolhydrat|carbohidrat|carboidrat|hidratos de carbono/i, fat: /мазнини|(^|\W)fat(\W|$)|fett|masti|gr[aă]simi|λιπαρ|vetten|grasas|grassi|mati[eè]res grasses|lipides/i
     };
     function numCands(tok) {
       let t = String(tok).replace(/[~–—:;|«»()]/g, '').replace(/^[^\dOoQIl]+/, '');
@@ -475,7 +475,10 @@
       const out = []; const add = (v, cost) => { if (isFinite(v) && v >= 0 && v <= 100 && !out.some(o => Math.abs(o.v - v) < 1e-9)) out.push({ v: Math.round(v * 100) / 100, cost }); };
       if (core.includes('.')) {
         const [a, b] = core.split('.');
-        add(+core, b.length <= 2 ? 0 : 2);
+        /* "32,89" with no "g": the 9 is usually the g of "32,8 g" (values of 1 g or more rarely have two decimals). */
+        const gAsNine = !unit && b.length === 2 && b[1] === '9' && a !== '0';
+        if (gAsNine) add(+(a + '.' + b[0]), 0.5);
+        add(+core, b.length <= 2 ? (gAsNine ? 1 : 0) : 2);
         if (!unit && b.length >= 2) add(+(a + '.' + b.slice(0, -1)), b.length > 2 ? 0 : 1);
       } else {
         const D = core;
@@ -493,37 +496,43 @@
       return { calc: Math.round(calc), ok: Math.abs(calc - n.kcal) <= Math.max(15, 0.12 * n.kcal) };
     }
     function parseNutrition(text) {
-      const lines = String(text).split('\n').map(l => l.trim()).filter(Boolean);
+      const split = new Set(); /* "0, 9": a decimal split by a space is often misread (it was "0,1 g") */
+      const lines = String(text).split('\n').map(l => l.trim()).filter(Boolean).map(l => { const m = l.replace(/(\d)([.,])\s+(\d)(?!\d*\s*%)/g, '$1$2$3'); if (m !== l) split.add(m); return m; });
       const out = { doubt: [] }; let i0 = -1;
-      const kcalRe = /(\d{1,4}(?:[.,]\d)?)\s*(?:kcal|kca[l1I|i]?|keal|kcai|ккал)/i, kjRe = /(\d{2,4})\s*(?:k[jJ3]|кдж)(?![a-z])/i;
+      const kcalRe = /(\d{1,4}(?:(?:[.,]|\s(?=\d\s*k))\d)?)\s*(?:kcal|kca[l1I|i]?|keal|kcai|ккал)/i, kjRe = /(\d{2,4})\s*(?:k[jJ3]|кдж)(?![a-z])/i;
       lines.forEach((l, i) => {
         const a = kcalRe.exec(l), b = kjRe.exec(l);
-        if ((a || b) && i0 < 0 && !/2000|8400/.test(l)) { i0 = i; if (a) out.kcal = +a[1].replace(',', '.'); if (b) out.kj = +b[1]; }
+        if ((a || b) && i0 < 0 && !/2000|8400/.test(l)) { i0 = i; if (a) out.kcal = +a[1].replace(/[,\s]/, '.'); if (b) out.kj = +b[1]; }
         if (out.portion == null) for (const p of [...l.matchAll(/\/\s*(\d{1,3})\s*(g|q|ml|гр?|мл)/gi), ...l.matchAll(/(?:порци[яи]|per|serving|по)\s*(?:от\s*)?(\d{1,3})\s*(g|ml|г|мл)/gi)])
           if (+p[1] !== 100 && +p[1] > 0) { out.portion = +p[1]; break; }
       });
       if (out.kcal == null && out.kj) out.kcal = Math.round(out.kj / 4.184);
       if (i0 < 0) i0 = lines.findIndex(l => /100/.test(l));
       const r = out.portion ? out.portion / 100 : null;
-      const rows = [];
+      const rows = []; let carried = null;
+      const keyOf = l => { for (const k of ['sat', 'sugar', 'fibre', 'protein', 'salt', 'carbs', 'fat']) if (NUT_WORDS[k].test(l)) return k; return null; };
       for (let i = i0 + 1; i < lines.length; i++) {
         const l = lines[i];
         if (/8400|2000\s*k|reference|референт|\bRI\b/i.test(l)) break;
-        const toks = l.split(/\s+/).filter(t => /\d/.test(t) && !/%|\/|kj|kcal|keal/i.test(t));
-        if (!toks.length) continue;
-        let key = null; for (const k of ['sat', 'sugar', 'fibre', 'protein', 'salt', 'carbs', 'fat']) if (NUT_WORDS[k].test(l)) { key = k; break; }
+        /* "-от" read as "-0T", "1a": digits glued to letters are not numbers. A "/" right after the comma is usually a 7. */
+        const toks = l.replace(/(\d[.,])\/(?=\s|$)/g, '$17').split(/\s+/)
+          .filter(t => /\d/.test(t) && !/%|\/|kj|kcal|keal/i.test(t) && !/[a-zа-я]/i.test(t.replace(/^[^\dOoQIl]+/, '').replace(/(mg|g|q|гр?|мг)\W*$/i, '').replace(/[OoQIl]/g, '')));
+        /* Labels in several languages wrap one row over 2–3 lines: the name can be on a line above the number. */
+        if (!toks.length) { const k = keyOf(l); if (k) carried = k; continue; }
+        let key = keyOf(l) || carried; carried = null;
         const c1 = numCands(toks[0]), c2 = toks[1] ? numCands(toks[1]) : [];
         let best = null;
         if (r && c2.length && !(c1[0] && c1[0].v > 0 && c1[0].v * r < 0.3 && c1[0].cost === 0)) {
           for (const a of c1) for (const b of c2) { const err = Math.abs(b.v - a.v * r) / Math.max(a.v * r, 0.1); const sc = err * 4 + a.cost * 0.3 + b.cost * 0.3; if (!best || sc < best.sc) best = { v: a.v, sc, err }; }
           if (!best || best.err > 0.25) { const b = c2.find(x => x.v / r <= 100 && x.v > 0); const derived = b ? Math.round(b.v / r * 10) / 10 : null; best = { v: c1[0] && c1[0].v > 0 ? c1[0].v : derived != null ? derived : (c1[0] ? c1[0].v : null), alt: derived, doubt: true }; }
-        } else best = c1[0] ? { v: c1[0].v, doubt: c1[0].cost > 1 } : null;
-        if (best && best.v != null) rows.push({ v: best.v, alt: best.alt, key, doubt: !!best.doubt });
+        } else best = c1[0] ? { v: c1[0].v, doubt: c1[0].cost > 1 || /^\d+[.,](?!\d)/.test(toks[0]) } : null;
+        if (best && best.v != null) rows.push({ v: best.v, alt: best.alt, key, doubt: !!best.doubt || split.has(l), cands: c1 });
       }
       const keyed = rows.filter(x => x.key);
       let order = rows.length === 7 ? NUT_ORDER7 : rows.length === 6 ? NUT_ORDER6 : null;
-      if (keyed.length >= 3 && new Set(keyed.map(x => x.key)).size === keyed.length) rows.forEach((x, i) => { const k = x.key || (order && order[i]); if (k && out[k] == null) { out[k] = x.v; if (x.doubt) out.doubt.push(k); } });
-      else if (order) rows.forEach((x, i) => { out[order[i]] = x.v; if (x.doubt) out.doubt.push(order[i]); });
+      const candOf = {};
+      if (keyed.length >= 3 && new Set(keyed.map(x => x.key)).size === keyed.length) rows.forEach((x, i) => { const k = x.key || (order && order[i]); if (k && out[k] == null) { out[k] = x.v; candOf[k] = x.cands; if (x.doubt) out.doubt.push(k); } });
+      else if (order) rows.forEach((x, i) => { out[order[i]] = x.v; candOf[order[i]] = x.cands; if (x.doubt) out.doubt.push(order[i]); });
       else if (rows.length > 7) { [['fat', 0], ['sat', 1], ['protein', rows.length - 2], ['salt', rows.length - 1]].forEach(([k, i]) => { out[k] = rows[i].v; if (rows[i].doubt) out.doubt.push(k); }); }
       const alts = {}; const at = (k, x) => { if (x && x.alt != null) alts[k] = x.alt; };
       if (order && !(keyed.length >= 3)) rows.forEach((x, i) => at(order[i], x));
@@ -538,13 +547,61 @@
         }
         if (bestFix) ks.forEach(k => { out[k] = bestFix.t[k]; });
       }
+      /* Still not adding up: a lost decimal comma ("41" for 4,1) is the usual cause. Try the other readings of each number. */
+      const c1 = energyCheck(out);
+      if (c1 && !c1.ok) {
+        const ks = ['fat', 'carbs', 'protein'].filter(k => candOf[k] && candOf[k].length > 1);
+        const opts = ks.map(k => candOf[k].slice(0, 4)); let fix = null;
+        const walk = (j, t, cost) => {
+          if (j === ks.length) { const c = energyCheck(t); if (c && c.ok && (!fix || cost < fix.cost)) fix = { t: Object.assign({}, t), cost }; return; }
+          for (const o of opts[j]) { t[ks[j]] = o.v; walk(j + 1, t, cost + o.cost); }
+        };
+        walk(0, Object.assign({}, out), 0);
+        if (fix) ks.forEach(k => { if (fix.t[k] !== out[k]) { out[k] = fix.t[k]; out.doubt.push(k); } });
+      }
       if (out.sat != null && out.fat != null && out.sat > out.fat) out.doubt.push('sat');
       if (out.sugar != null && out.carbs != null && out.sugar > out.carbs) out.doubt.push('sugar');
       out.check = energyCheck(out); out.rows = rows.length;
+      out.cands = {}; Object.keys(candOf).forEach(k => { if (out[k] != null) out.cands[k] = [{ v: out[k], cost: 0 }, ...(candOf[k] || []).filter(c => c.v !== out[k])]; });
       return out;
     }
 
-    return { items, ingredientInfo, allergens, glossFor, EX, extractBulgarian, extractEnglish, readable, parseNutrition, energyCheck, numCands, analyseText, analyseProduct, summary, kidSummary, flagsFor, additiveInfo, level, cubes, fmt, LEVEL_WORD, LIMITS, suggest, avoidHits, AVOID_RULES, offAdditive, SRC, ING };
+    /* Several readings of the same table (different reader settings): pick, field by field, the values that agree
+       with each other and with the label's own maths (energy adds up, saturated ≤ fat, sugars ≤ carbs). */
+    const NUT_KEYS = ['fat', 'sat', 'carbs', 'sugar', 'fibre', 'protein', 'salt'];
+    function mergeNutrition(list) {
+      list = list.filter(Boolean); if (!list.length) return parseNutrition('');
+      const out = { doubt: [] };
+      const kc = list.map(p => p.kcal).filter(v => v != null);
+      if (kc.length) out.kcal = kc.sort((a, b) => kc.filter(x => x === b).length - kc.filter(x => x === a).length)[0];
+      const port = list.map(p => p.portion).find(v => v != null); if (port != null) out.portion = port;
+      const opts = {};
+      NUT_KEYS.forEach(k => {
+        const tops = list.map(p => p[k]).filter(v => v != null); if (!tops.length) return;
+        const m = new Map();
+        list.forEach(p => (p.cands && p.cands[k] || (p[k] != null ? [{ v: p[k], cost: 0 }] : [])).forEach(c => {
+          const votes = tops.filter(v => Math.abs(v - c.v) < 1e-6).length;
+          const cost = c.cost - 0.8 * (votes - 1) + (p.doubt.includes(k) && c.cost === 0 ? 0.3 : 0);
+          if (!m.has(c.v) || m.get(c.v) > cost) m.set(c.v, cost);
+        }));
+        opts[k] = [...m].map(([v, cost]) => ({ v, cost })).sort((a, b) => a.cost - b.cost).slice(0, 4);
+      });
+      const ks = Object.keys(opts); let best = null; const t = Object.assign({}, out);
+      const penalty = n => { let x = 0; const c = energyCheck(n); if (c && !c.ok) x += 6;
+        if (n.sat != null && n.fat != null && n.sat > n.fat + 0.05) x += 6; if (n.sugar != null && n.carbs != null && n.sugar > n.carbs + 0.05) x += 6; if (n.salt != null && n.salt > 20) x += 3; return x; };
+      const walk = (j, cost) => {
+        if (best && cost >= best.sc) return;
+        if (j === ks.length) { const sc = cost + penalty(t); if (!best || sc < best.sc) best = { sc, v: Object.assign({}, t) }; return; }
+        for (const o of opts[ks[j]]) { t[ks[j]] = o.v; walk(j + 1, cost + o.cost); }
+      };
+      walk(0, 0);
+      ks.forEach(k => { out[k] = best.v[k]; const tops = list.map(p => p[k]).filter(v => v != null);
+        if (tops.some(v => Math.abs(v - out[k]) > 1e-6) || !tops.length || list.some(p => p[k] === out[k] && p.doubt.includes(k))) out.doubt.push(k); });
+      out.check = energyCheck(out); out.problems = penalty(out);
+      return out;
+    }
+
+    return { items, ingredientInfo, allergens, glossFor, EX, extractBulgarian, extractEnglish, readable, parseNutrition, mergeNutrition, energyCheck, numCands, analyseText, analyseProduct, summary, kidSummary, flagsFor, additiveInfo, level, cubes, fmt, LEVEL_WORD, LIMITS, suggest, avoidHits, AVOID_RULES, offAdditive, SRC, ING };
   }
 
   const api = { createEngine };

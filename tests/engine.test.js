@@ -136,6 +136,13 @@ assert.deepStrictEqual([clean.fat, clean.sat, clean.carbs, clean.sugar, clean.fi
 assert.ok(clean.check.ok && clean.doubt.length === 0);
 const noisy = E.parseNutrition('0/100 9/20q %RI\n/588keal | 4850/5\n48) gq 38 g Eh\n~ 20q 38g 8%\n- A2g 429 2%\n128g 28g 3%\n~ 140g 28g\n~ 105g 2g 4%\n002g Q0lg «3\n3400 k/2000 keal)/Consumul');
 assert.strictEqual(noisy.salt, 0.02); assert.strictEqual(noisy.carbs, 21); assert.ok(noisy.doubt.includes('carbs') && noisy.check.ok);
+// Table in 5 languages (Nasladki fig biscuits, photo 7 Nov 2026): each row wraps over 2–3 lines and the grid hides rows.
+// Four readings of the same photo (plain/grid-erased × block/columns), combined field by field.
+const nl = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/nasladki-nutrition-5-languages-ocr.json'), 'utf8')).map(t => E.parseNutrition(t));
+const nm = E.mergeNutrition(nl);
+assert.deepStrictEqual([nm.kcal, nm.fat, nm.sat, nm.carbs, nm.sugar, nm.protein], [432.7, 17.5, 8.9, 64.7, 32.8, 4.1]);
+assert.ok(nm.check.ok && !nm.problems && nm.doubt.includes('salt'), 'salt read as "0, 9" must be marked unsure');
+console.log('ok nutrition table in 5 languages: readings combined, impossible values rejected');
 // English ingredients and the "could not read" guard
 const en = E.analyseText('Ingredients: cocoa mass, sugar, emulsifier: lecithins (soya). May contain traces of milk.');
 assert.ok(en.add.has('E322') && en.ing.has('sugar') && !en.ing.has('milk') && E.readable(en));

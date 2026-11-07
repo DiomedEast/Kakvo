@@ -502,7 +502,16 @@
   function loadScript(src) { return new Promise((ok, bad) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); }
 
   /* Grey, auto-invert light-on-dark labels, stretch contrast, enlarge. Tesseract reads dark text on light best. */
-  function prepare(src, box) {
+  /* Nutrition tables: erase long dark horizontal and vertical lines (the table grid). The reader often skips a row that touches a line. */
+  function eraseGrid(d, W, H) {
+    const g = new Uint8Array(W * H); for (let i = 0; i < W * H; i++) g[i] = d[i * 4];
+    const white = i => { d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = 255; };
+    const minH = Math.round(W * 0.25), minV = Math.round(H * 0.15);
+    for (let y = 0; y < H; y++) { let s = -1; for (let x = 0; x <= W; x++) { const k = x < W && g[y * W + x] < 110; if (k && s < 0) s = x; if (!k && s >= 0) { if (x - s >= minH) for (let i = s; i < x; i++) for (let dy = -2; dy <= 2; dy++) if (y + dy >= 0 && y + dy < H) white((y + dy) * W + i); s = -1; } } }
+    for (let x = 0; x < W; x++) { let s = -1; for (let y = 0; y <= H; y++) { const k = y < H && g[y * W + x] < 110; if (k && s < 0) s = y; if (!k && s >= 0) { if (y - s >= minV) for (let i = s; i < y; i++) for (let dx = -2; dx <= 2; dx++) if (x + dx >= 0 && x + dx < W) white(i * W + x + dx); s = -1; } } }
+  }
+
+  function prepare(src, box, grid) {
     const bx = box || { x: 0, y: 0, w: src.width, h: src.height };
     const scale = Math.max(0.5, Math.min(3, 2400 / bx.w));
     const c = document.createElement('canvas'); c.width = Math.round(bx.w * scale); c.height = Math.round(bx.h * scale);
@@ -517,6 +526,7 @@
     acc = 0; for (; hi > 0; hi--) { acc += hist[hi]; if (acc > n * 0.02) break; }
     const span = Math.max(1, hi - lo);
     for (let i = 0; i < n; i++) { let v = (g[i] - lo) * 255 / span; if (invert) v = 255 - v; d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v; d[i * 4 + 3] = 255; }
+    if (grid) eraseGrid(d, c.width, c.height);
     ctx.putImageData(img, 0, 0);
     return c;
   }
@@ -581,6 +591,7 @@
     view(`<div class="center"><div class="spinner" aria-hidden="true"></div><p id="ocrmsg">Проверяваме снимката…</p></div>`);
     const canvas = prepare(lastPhoto, box);
     if (sharpness(canvas) < (CFG.BLUR_THRESHOLD || 60)) return viewBlur();
+    const nut = photoMode === 'nut';
     try {
       const what = photoMode === 'nut' ? 'Четем числата…' : 'Четем състава…';
       document.getElementById('ocrmsg').textContent = what + ' Първия път отнема около минута.';
@@ -595,12 +606,29 @@
         const flip = await worker.recognize(rotateCanvas(canvas, 180), {}, { text: true, blocks: true });
         if (conf(flip.data) > conf(data) + 5) data = flip.data;
       }
+      const linesOf = dt => { const ls = []; (dt.blocks || []).forEach(b => b.paragraphs.forEach(p => p.lines.forEach(l => ls.push(l.words.map(w => w.text).join(' '))))); return ls; };
+      if (nut) {
+        /* Tables in several languages: read again with the grid erased, and in "columns" mode, and keep the reading that makes most sense. */
+        const done = p => p.fat != null && p.carbs != null && p.protein != null && p.salt != null && p.sat != null && p.sugar != null && p.check && p.check.ok && !p.problems;
+        let lines = linesOf(data); const reads = [E.parseNutrition(lines.join('\n'))]; let best = E.mergeNutrition(reads);
+        for (const [grid, psm] of [[true, '6'], [true, '4'], [false, '4']]) {
+          if (done(best)) break;
+          const msg = document.getElementById('ocrmsg'); if (msg) msg.textContent = 'Таблицата е трудна. Четем я още веднъж…';
+          await worker.setParameters({ tessedit_pageseg_mode: psm });
+          const r = await worker.recognize(grid ? prepare(lastPhoto, box, true) : canvas, {}, { text: true, blocks: true });
+          const ls = linesOf(r.data); reads.push(E.parseNutrition(ls.join('\n'))); lines = lines.concat(['---'], ls);
+          best = E.mergeNutrition(reads);
+        }
+        await worker.terminate();
+        window.KAKVO_LAST_OCR = lines;
+        if (!lines.join('').trim()) return viewBlur('Не намерихме текст на снимката.');
+        return viewNutConfirm(best);
+      }
       await worker.terminate();
       const words = []; const lines = [];
       (data.blocks || []).forEach(b => b.paragraphs.forEach(p => p.lines.forEach(l => { lines.push(l.words.map(w => w.text).join(' ')); l.words.forEach(w => words.push({ t: w.text, c: w.confidence })); words.push({ t: '\n' }); })));
       if (!words.filter(w => w.t !== '\n').length) return viewBlur('Не намерихме текст на снимката.');
       window.KAKVO_LAST_OCR = lines;
-      if (photoMode === 'nut') return viewNutConfirm(E.parseNutrition(lines.join('\n')));
       viewReview(words, !!box, false, lang);
     } catch (e) {
       console.error(e);

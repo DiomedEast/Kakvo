@@ -1,6 +1,6 @@
 # Kakvo — project status (handoff note)
 
-Last updated: 7 November 2026, version 0.2.4. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
+Last updated: 7 November 2026, version 0.2.5. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
 
 ## What Kakvo is
 A free web app (PWA) for Bulgaria that explains what is in a food product in plain Bulgarian. Owner: Mo, sold by BonbelleGroup.
@@ -29,6 +29,12 @@ A free web app (PWA) for Bulgaria that explains what is in a food product in pla
 - v0.1.9 (Mo's decision): barcode with no Bulgarian list in Open Food Facts → "Снимай състава на опаковката" screen first (photo, type it, or "Виж само данните от базата" = `#/p/<code>?db=1`). The photo result keeps the product name and database nutrition, opens as the product page, and is saved on the phone per barcode (`localStorage kakvo_labels`, last 50), so the next scan is explained at once. Database additive/allergen tags are not mixed into a photo-based result. Not shared with other users or sent to Open Food Facts (would need a server/account).
 - v0.2.4 (7 Nov 2026): explanations for every unexplained ingredient found in ≥1% of products and every additive in ≥0.4% (plus E251): now 241 ingredients + 80 additives. New sources: EFSA nitrates 2017 (E251/E252), EFSA phosphates 2019 (E339–E341), Reg. 2019/649 (trans fats, note on hydrogenated fats). New allergen group `sulphites` (E220, E223, E224); the engine now reads `x` on additives too, not only on variants. Label spellings that already belonged to another item were left out on purpose.
 - Not yet: kid-mode lines for ingredients, explanations for the remaining ~263 rarer ingredients and ~161 additives (they show "Още нямаме подробно обяснение").
+
+## Nutrition tables in several languages (v0.2.5)
+- Found by Mo (Nasladki fig biscuits, `tests/photos/nasladki-nutrition-5-languages.jpg`): rows in 5 languages wrap over 2–3 lines and the table grid made Tesseract skip rows → "could not read the numbers".
+- Now: if the first reading is incomplete, the app reads again with the grid lines erased (`eraseGrid` in app.js), then in "columns" mode (page mode 4), and `mergeNutrition` combines the readings field by field: values that agree win, and the label's own maths decides (energy adds up, saturated ≤ fat, sugars ≤ carbs). Changed or split values ("0, 9") are marked orange.
+- Parser: nutrient words in DE/NL/ES/FR/IT; a number alone on a line takes the name from the line above; "-от" read as "-0T" is ignored; "432 7 kcal" = 432,7; "32,89" without g = 32,8 g.
+- On that photo all values are right except salt (1 or 0,9 instead of 0,1), which is marked "провери". Tests: `node tests/engine.test.js`, `tests/nut-5lang-e2e.js`. Worst case 4 readings: slower on old phones.
 
 ## Sharing photos with Open Food Facts (v0.2.0, built, not switched on)
 - Mo said yes. After a "Снимай състава" photo for a scanned product, a ticked-by-default "Сподели с Open Food Facts" box sends the framed label photo (JPEG, ≥640×160) and the checked Bulgarian text to `worker/contribute.js` (Cloudflare Worker), which writes to Open Food Facts with the app account: photo as `ingredients_bg` (or `other` if one exists), text only if the product has none. Never replaces data. Anonymous per-phone `app_uuid`. Offline → outbox of 5, retried on next start.
