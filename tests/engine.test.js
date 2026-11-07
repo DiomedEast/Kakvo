@@ -143,6 +143,14 @@ const nm = E.mergeNutrition(nl);
 assert.deepStrictEqual([nm.kcal, nm.fat, nm.sat, nm.carbs, nm.sugar, nm.protein], [432.7, 17.5, 8.9, 64.7, 32.8, 4.1]);
 assert.ok(nm.check.ok && !nm.problems && nm.doubt.includes('salt'), 'salt read as "0, 9" must be marked unsure');
 console.log('ok nutrition table in 5 languages: readings combined, impossible values rejected');
+// Second photo of the same box (7 Nov 2026): "18104 kJ", "kal", "894]" for 8,9 g, "-от" read as "07".
+const n2 = E.mergeNutrition(JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/nasladki-nutrition-photo2-ocr.json'), 'utf8')).map(t => E.parseNutrition(t)));
+assert.deepStrictEqual([n2.kcal, n2.fat, n2.sat, n2.carbs, n2.sugar], [432.7, 17.5, 8.9, 64.7, 32.8]);
+assert.strictEqual(E.parseNutrition('1810,4 kJ (4327 kcal)').kcal, 432.7);
+assert.strictEqual(E.parseNutrition('18104 kJ (432.7 kal)').kcal, 432.7);
+const p07 = E.parseNutrition('1810,4 kJ (432,7 kcal)\nFat 17,5 g\n07 Kou1o 3axapw/of which sugars/ de los cuales\nazucares/ davon zucker 32,8 g');
+assert.ok(!Object.values(p07).includes(0.7) && !Object.values(p07).includes(7), '"-от" read as "07" is not a value');
+console.log('ok second photo: energy from kJ, lost commas, misread words');
 // English ingredients and the "could not read" guard
 const en = E.analyseText('Ingredients: cocoa mass, sugar, emulsifier: lecithins (soya). May contain traces of milk.');
 assert.ok(en.add.has('E322') && en.ing.has('sugar') && !en.ing.has('milk') && E.readable(en));

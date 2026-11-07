@@ -497,15 +497,21 @@
     }
     function parseNutrition(text) {
       const split = new Set(); /* "0, 9": a decimal split by a space is often misread (it was "0,1 g") */
-      const lines = String(text).split('\n').map(l => l.trim()).filter(Boolean).map(l => { const m = l.replace(/(\d)([.,])\s+(\d)(?!\d*\s*%)/g, '$1$2$3'); if (m !== l) split.add(m); return m; });
+      const lines = String(text).split('\n').map(l => l.trim()).filter(Boolean).map(l => l.replace(/^[|{}\[\]~_]+\s*/, '')) /* table edge read as "|" */
+        .map(l => { const m = l.replace(/(\d)([.,])\s+(\d)(?!\d*\s*%)/g, '$1$2$3').replace(/(^|\s)[JjOoQDU]\s?([.,])\s?(\d)(?=\D*$)/, '$10$2$3'); if (m !== l) split.add(m); return m; });
       const out = { doubt: [] }; let i0 = -1;
-      const kcalRe = /(\d{1,4}(?:(?:[.,]|\s(?=\d\s*k))\d)?)\s*(?:kcal|kca[l1I|i]?|keal|kcai|ккал)/i, kjRe = /(\d{2,4})\s*(?:k[jJ3]|кдж)(?![a-z])/i;
+      const kcalRe = /(\d{1,4}(?:(?:[.,]|\s(?=\d\s*k))\d)?)\s*(?:kcal|kca[l1I|i]?|keal|kcai|kal|ккал)/i, kjRe = /(\d{2,5}(?:[.,]\d)?)\s*(?:k[jJ3]|кдж)(?![a-z])/i;
       lines.forEach((l, i) => {
         const a = kcalRe.exec(l), b = kjRe.exec(l);
-        if ((a || b) && i0 < 0 && !/2000|8400/.test(l)) { i0 = i; if (a) out.kcal = +a[1].replace(/[,\s]/, '.'); if (b) out.kj = +b[1]; }
+        if ((a || b) && i0 < 0 && !/2000|8400/.test(l)) { i0 = i; if (a) out.kcal = +a[1].replace(/[,\s]/, '.'); if (b) out.kj = +b[1].replace(',', '.'); }
         if (out.portion == null) for (const p of [...l.matchAll(/\/\s*(\d{1,3})\s*(g|q|ml|гр?|мл)/gi), ...l.matchAll(/(?:порци[яи]|per|serving|по)\s*(?:от\s*)?(\d{1,3})\s*(g|ml|г|мл)/gi)])
           if (+p[1] !== 100 && +p[1] > 0) { out.portion = +p[1]; break; }
       });
+      /* Nothing has more than ~900 kcal / ~3800 kJ per 100 g: a bigger number lost its decimal comma ("4327" for 432,7). */
+      if (out.kj > 3800) out.kj = out.kj / 10;
+      if (out.kcal > 900) out.kcal = out.kcal / 10;
+      /* kJ and kcal must agree (1 kcal = 4,184 kJ). If not, trust the kJ number, which is longer and usually read better. */
+      if (out.kcal != null && out.kj && Math.abs(out.kj / 4.184 - out.kcal) > Math.max(5, 0.05 * out.kcal)) { out.kcal = Math.round(out.kj / 4.184 * 10) / 10; out.doubt.push('kcal'); }
       if (out.kcal == null && out.kj) out.kcal = Math.round(out.kj / 4.184);
       if (i0 < 0) i0 = lines.findIndex(l => /100/.test(l));
       const r = out.portion ? out.portion / 100 : null;
@@ -515,7 +521,9 @@
         const l = lines[i];
         if (/8400|2000\s*k|reference|референт|\bRI\b/i.test(l)) break;
         /* "-от" read as "-0T", "1a": digits glued to letters are not numbers. A "/" right after the comma is usually a 7. */
-        const toks = l.replace(/(\d[.,])\/(?=\s|$)/g, '$17').split(/\s+/)
+        /* A short number at the start of a line, followed by a word, is a misread word: "-от които" → "07 Kou1o", "-0T KOUTO". */
+        const words = l.replace(/(\d[.,])\/(?=\s|$)/g, '$17').split(/\s+/);
+        const toks = words.filter((t, j) => !(j === 0 && words.length >= 4 && /^[^\d\s]{0,2}\d{1,2}[^\d\s]{0,2}$/.test(t) && /^[^\d\s]{3,}/.test(words[1] || '')))
           .filter(t => /\d/.test(t) && !/%|\/|kj|kcal|keal/i.test(t) && !/[a-zа-я]/i.test(t.replace(/^[^\dOoQIl]+/, '').replace(/(mg|g|q|гр?|мг)\W*$/i, '').replace(/[OoQIl]/g, '')));
         /* Labels in several languages wrap one row over 2–3 lines: the name can be on a line above the number. */
         if (!toks.length) { const k = keyOf(l); if (k) carried = k; continue; }
@@ -525,7 +533,8 @@
         if (r && c2.length && !(c1[0] && c1[0].v > 0 && c1[0].v * r < 0.3 && c1[0].cost === 0)) {
           for (const a of c1) for (const b of c2) { const err = Math.abs(b.v - a.v * r) / Math.max(a.v * r, 0.1); const sc = err * 4 + a.cost * 0.3 + b.cost * 0.3; if (!best || sc < best.sc) best = { v: a.v, sc, err }; }
           if (!best || best.err > 0.25) { const b = c2.find(x => x.v / r <= 100 && x.v > 0); const derived = b ? Math.round(b.v / r * 10) / 10 : null; best = { v: c1[0] && c1[0].v > 0 ? c1[0].v : derived != null ? derived : (c1[0] ? c1[0].v : null), alt: derived, doubt: true }; }
-        } else best = c1[0] ? { v: c1[0].v, doubt: c1[0].cost > 1 || /^\d+[.,](?!\d)/.test(toks[0]) } : null;
+        } else best = c1[0] ? { v: c1[0].v, doubt: c1[0].cost >= 1 || /^\d+[.,](?!\d)/.test(toks[0])
+          /* "019" with no "g": the 9 may be the g of "0,1 g" */ || (/\d{2}9\W*$/.test(toks[0].replace(/[.,]/g, '')) && !/[gqг¢]\W*$/i.test(toks[0])) } : null;
         if (best && best.v != null) rows.push({ v: best.v, alt: best.alt, key, doubt: !!best.doubt || split.has(l), cands: c1 });
       }
       const keyed = rows.filter(x => x.key);
@@ -553,7 +562,7 @@
         const ks = ['fat', 'carbs', 'protein'].filter(k => candOf[k] && candOf[k].length > 1);
         const opts = ks.map(k => candOf[k].slice(0, 4)); let fix = null;
         const walk = (j, t, cost) => {
-          if (j === ks.length) { const c = energyCheck(t); if (c && c.ok && (!fix || cost < fix.cost)) fix = { t: Object.assign({}, t), cost }; return; }
+          if (j === ks.length) { const c = energyCheck(t); const sc = c ? cost + 10 * Math.abs(c.calc - t.kcal) / t.kcal : cost; if (c && c.ok && (!fix || sc < fix.cost)) fix = { t: Object.assign({}, t), cost: sc }; return; }
           for (const o of opts[j]) { t[ks[j]] = o.v; walk(j + 1, t, cost + o.cost); }
         };
         walk(0, Object.assign({}, out), 0);
@@ -587,7 +596,7 @@
         opts[k] = [...m].map(([v, cost]) => ({ v, cost })).sort((a, b) => a.cost - b.cost).slice(0, 4);
       });
       const ks = Object.keys(opts); let best = null; const t = Object.assign({}, out);
-      const penalty = n => { let x = 0; const c = energyCheck(n); if (c && !c.ok) x += 6;
+      const penalty = n => { let x = 0; const c = energyCheck(n); if (c && !c.ok) x += 6; if (c && c.ok) x += 10 * Math.abs(c.calc - n.kcal) / n.kcal;
         if (n.sat != null && n.fat != null && n.sat > n.fat + 0.05) x += 6; if (n.sugar != null && n.carbs != null && n.sugar > n.carbs + 0.05) x += 6; if (n.salt != null && n.salt > 20) x += 3; return x; };
       const walk = (j, cost) => {
         if (best && cost >= best.sc) return;
@@ -597,7 +606,7 @@
       walk(0, 0);
       ks.forEach(k => { out[k] = best.v[k]; const tops = list.map(p => p[k]).filter(v => v != null);
         if (tops.some(v => Math.abs(v - out[k]) > 1e-6) || !tops.length || list.some(p => p[k] === out[k] && p.doubt.includes(k))) out.doubt.push(k); });
-      out.check = energyCheck(out); out.problems = penalty(out);
+      out.check = energyCheck(out); out.problems = penalty(out) - (out.check && out.check.ok ? 10 * Math.abs(out.check.calc - out.kcal) / out.kcal : 0);
       return out;
     }
 

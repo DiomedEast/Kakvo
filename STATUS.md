@@ -1,6 +1,6 @@
 # Kakvo — project status (handoff note)
 
-Last updated: 7 November 2026, version 0.2.5. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
+Last updated: 7 November 2026, version 0.2.6. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
 
 ## What Kakvo is
 A free web app (PWA) for Bulgaria that explains what is in a food product in plain Bulgarian. Owner: Mo, sold by BonbelleGroup.
@@ -34,6 +34,8 @@ A free web app (PWA) for Bulgaria that explains what is in a food product in pla
 - Found by Mo (Nasladki fig biscuits, `tests/photos/nasladki-nutrition-5-languages.jpg`): rows in 5 languages wrap over 2–3 lines and the table grid made Tesseract skip rows → "could not read the numbers".
 - Now: if the first reading is incomplete, the app reads again with the grid lines erased (`eraseGrid` in app.js), then in "columns" mode (page mode 4), and `mergeNutrition` combines the readings field by field: values that agree win, and the label's own maths decides (energy adds up, saturated ≤ fat, sugars ≤ carbs). Changed or split values ("0, 9") are marked orange.
 - Parser: nutrient words in DE/NL/ES/FR/IT; a number alone on a line takes the name from the line above; "-от" read as "-0T" is ignored; "432 7 kcal" = 432,7; "32,89" without g = 32,8 g.
+- v0.2.6 (second photo of the same box, `tests/photos/nasladki-nutrition-photo2.jpg`; Mo saw saturated fat 3,9, marked orange): energy is checked against kJ (1 kcal = 4,184 kJ) and numbers over 900 kcal / 3800 kJ lose a digit ("4327" → 432,7); "kal" accepted; a short number at the start of a line before a word ("07 Kou1o", "| 07 Koto" = "-от които") is ignored; "J, 1" = "0,1"; table edges ("|") stripped; guessed decimals and a final 9 that may be a "g" are marked orange; the energy-fit tolerance now prefers the closest fit. Both photos: all values right in the app (photo 2: salt left empty). Tests: `tests/nut-5lang-e2e.js`, `tests/nut-5lang-photo2-e2e.js`.
+- Saturated fat and sugars cannot be checked by the energy maths: they rely on agreement between readings (orange when they disagree) and on sat ≤ fat, sugars ≤ carbs.
 - On that photo all values are right except salt (1 or 0,9 instead of 0,1), which is marked "провери". Tests: `node tests/engine.test.js`, `tests/nut-5lang-e2e.js`. Worst case 4 readings: slower on old phones.
 
 ## Sharing photos with Open Food Facts (v0.2.0, built, not switched on)
