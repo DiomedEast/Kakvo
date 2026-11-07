@@ -3,10 +3,11 @@ main = "contribute.js"
 compatibility_date = "2026-10-01"
 
 [vars]
-# Start on the Open Food Facts test server. Switch to https://world.openfoodfacts.org when the test works.
-OFF_BASE = "https://world.openfoodfacts.net"
+# Live since 7 Nov 2026. (Test server: https://world.openfoodfacts.net)
+# Careful: "wrangler deploy" overwrites the dashboard variables with the values in this file.
+OFF_BASE = "https://world.openfoodfacts.org"
 ALLOWED_ORIGINS = "https://diomedeast.github.io"
-APP_VERSION = "0.2.2"
+APP_VERSION = "0.2.4"
 
 # Secrets (never in this file):
 #   npx wrangler secret put OFF_USER
