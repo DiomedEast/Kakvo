@@ -74,7 +74,9 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: c.ok ? 204 : 403, headers: c.headers });
     if (request.method !== 'POST') return json(405, { ok: false, error: 'POST only' }, c.headers);
     if (!c.ok) return json(403, { ok: false, error: 'origin not allowed' });
-    if (!env.OFF_USER || !env.OFF_PASSWORD) return json(503, { ok: false, error: 'not configured' }, c.headers);
+    /* Pasted secrets often end with a space or line break: Open Food Facts then answers "Incorrect user name or password". */
+    const user = String(env.OFF_USER || '').trim(), pass = String(env.OFF_PASSWORD || '').trim();
+    if (!user || !pass) return json(503, { ok: false, error: 'not configured' }, c.headers);
 
     let form; try { form = await request.formData(); } catch (e) { return json(400, { ok: false, error: 'bad form' }, c.headers); }
     const body = { code: form.get('code'), text: form.get('text'), uuid: form.get('uuid') }; const image = form.get('image');
@@ -101,7 +103,7 @@ export default {
     // 2. The photo: proof for the text, and Open Food Facts reads it too.
     const field = hasPhoto ? 'other' : 'ingredients_bg';
     const fd = new FormData();
-    fd.set('user_id', env.OFF_USER); fd.set('password', env.OFF_PASSWORD); fd.set('code', body.code); fd.set('imagefield', field);
+    fd.set('user_id', user); fd.set('password', pass); fd.set('code', body.code); fd.set('imagefield', field);
     Object.entries(app).forEach(([k, v]) => fd.set(k, v));
     fd.set('imgupload_' + field, new Blob([image], { type: 'image/jpeg' }), `kakvo-${body.code}-ingredients.jpg`);
     const up = await fetch(`${base}/cgi/product_image_upload.pl`, { method: 'POST', body: fd, headers });
@@ -113,7 +115,7 @@ export default {
     let text = body.text ? 'kept existing' : 'not sent';
     if (!hasText && body.text) {
       const f2 = new FormData();
-      f2.set('user_id', env.OFF_USER); f2.set('password', env.OFF_PASSWORD); f2.set('code', body.code);
+      f2.set('user_id', user); f2.set('password', pass); f2.set('code', body.code);
       f2.set('ingredients_text_bg', body.text.trim());
       f2.set('comment', 'Kakvo: Bulgarian ingredients read from a label photo and checked by the user');
       Object.entries(app).forEach(([k, v]) => f2.set(k, v));

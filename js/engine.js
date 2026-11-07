@@ -333,9 +333,10 @@
       const a = DB.a[code]; const f = ranked(a); const e = EX.a[code] || {};
       const v = (e.v || []).find(x => ctx && new RegExp(x.m, 'i').test(ctx)) || null;
       const name = a ? a.bg : code;
-      const notes = [v && v.x ? allergenNote(v.x) : null, ...(e.n || []).map(noteOf)].filter(Boolean);
+      const ax = (v && v.x) || e.x || null; /* allergen: from the variant (soy lecithin) or always (sulphites) */
+      const notes = [ax ? allergenNote(ax) : null, ...(e.n || []).map(noteOf)].filter(Boolean);
       return { code, name, en: a ? a.en : '', roles: f.filter(x => ROLE[x]).map(x => ROLE[x]), what: e.w || null, why: e.j || null, variant: v ? v.t : null,
-        allergen: v && v.x ? EX.x[v.x] : null, notes, kid: f.map(x => KID_ROLE[x]).find(Boolean) || null, pct: a ? a.p : null, flag: FLAGS[code] || null, known: !!a };
+        allergen: ax ? EX.x[ax] : null, notes, kid: f.map(x => KID_ROLE[x]).find(Boolean) || null, pct: a ? a.p : null, flag: FLAGS[code] || null, known: !!a };
     }
 
     const GROUP_WORD = { grain: 'Зърно', sugar: 'Захари', fat: 'Мазнини', palm: 'Мазнини', trans: 'Мазнини', cocoa: 'Какао', dairy: 'Мляко', other: 'Друго' };

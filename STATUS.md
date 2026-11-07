@@ -1,6 +1,6 @@
 # Kakvo — project status (handoff note)
 
-Last updated: 3 November 2026, version 0.2.2. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
+Last updated: 7 November 2026, version 0.2.4. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
 
 ## What Kakvo is
 A free web app (PWA) for Bulgaria that explains what is in a food product in plain Bulgarian. Owner: Mo, sold by BonbelleGroup.
@@ -27,11 +27,13 @@ A free web app (PWA) for Bulgaria that explains what is in a food product in pla
   - Photo test: `tests/sondey-photo-e2e.js` (needs Tesseract files in /tmp/pk: `npm pack tesseract.js@7.0.0 tesseract.js-core@7 @tesseract.js-data/bul @tesseract.js-data/eng`, unpack dist/core to /tmp/pk/t, /tmp/pk/core and the .traineddata.gz files to /tmp/pk).
 - v0.1.8, found by Mo on the live site: some Open Food Facts entries have a broken ingredient list (Sondey biscuits: Italian OCR garbage, no Bulgarian text). Now: English/French list used if there is no Bulgarian one and it reads well; paragraph-long "ingredients" are never shown; if the list is unusable the page says so, hides the list and warnings, and "Снимай състава" keeps the product name and database nutrition (straight to the result, no table photo). Test: `tests/bad-off-e2e.js`.
 - v0.1.9 (Mo's decision): barcode with no Bulgarian list in Open Food Facts → "Снимай състава на опаковката" screen first (photo, type it, or "Виж само данните от базата" = `#/p/<code>?db=1`). The photo result keeps the product name and database nutrition, opens as the product page, and is saved on the phone per barcode (`localStorage kakvo_labels`, last 50), so the next scan is explained at once. Database additive/allergen tags are not mixed into a photo-based result. Not shared with other users or sent to Open Food Facts (would need a server/account).
-- Not yet: kid-mode lines for ingredients, explanations for the remaining ~375 rarer ingredients and ~190 additives (they show "Още нямаме подробно обяснение").
+- v0.2.4 (7 Nov 2026): explanations for every unexplained ingredient found in ≥1% of products and every additive in ≥0.4% (plus E251): now 241 ingredients + 80 additives. New sources: EFSA nitrates 2017 (E251/E252), EFSA phosphates 2019 (E339–E341), Reg. 2019/649 (trans fats, note on hydrogenated fats). New allergen group `sulphites` (E220, E223, E224); the engine now reads `x` on additives too, not only on variants. Label spellings that already belonged to another item were left out on purpose.
+- Not yet: kid-mode lines for ingredients, explanations for the remaining ~263 rarer ingredients and ~161 additives (they show "Още нямаме подробно обяснение").
 
 ## Sharing photos with Open Food Facts (v0.2.0, built, not switched on)
 - Mo said yes. After a "Снимай състава" photo for a scanned product, a ticked-by-default "Сподели с Open Food Facts" box sends the framed label photo (JPEG, ≥640×160) and the checked Bulgarian text to `worker/contribute.js` (Cloudflare Worker), which writes to Open Food Facts with the app account: photo as `ingredients_bg` (or `other` if one exists), text only if the product has none. Never replaces data. Anonymous per-phone `app_uuid`. Offline → outbox of 5, retried on next start.
-- **Switched on 3 Nov 2026 (v0.2.1), on the Open Food Facts TEST server**: worker `https://kakvo-contribute.mimo-ray83-ae3.workers.dev/` on Mo's Cloudflare account (mimo.ray83), OFF accounts `kakvoapp` on .org and .net. To go live: set `OFF_BASE` to `https://world.openfoodfacts.org` and the .org password in `OFF_PASSWORD` (Cloudflare → kakvo-contribute → Settings → Variables and secrets).
+- **LIVE since 7 Nov 2026**: worker uses `OFF_BASE=https://world.openfoodfacts.org`; Mo's phone test with Sondey (4056489257967) got "Благодарим!". The earlier 403s (test and live) were a wrong stored password ("Incorrect user name or password" in the log); v0.2.4 worker trims spaces/line breaks around OFF_USER/OFF_PASSWORD — paste the new worker/contribute.js into Cloudflare when convenient.
+- Switched on 3 Nov 2026 (v0.2.1), first on the Open Food Facts TEST server: worker `https://kakvo-contribute.mimo-ray83-ae3.workers.dev/` on Mo's Cloudflare account (mimo.ray83), OFF accounts `kakvoapp` on .org and .net. To go live: set `OFF_BASE` to `https://world.openfoodfacts.org` and the .org password in `OFF_PASSWORD` (Cloudflare → kakvo-contribute → Settings → Variables and secrets).
 - Original setup steps (done) in `worker/README.md`: Open Food Facts app account (+ API usage form), Cloudflare account, `wrangler secret put OFF_USER/OFF_PASSWORD`, `wrangler deploy`, then the worker address into `CONTRIBUTE_URL` in `js/config.js`. Worker starts on the OFF test server; switch `OFF_BASE` to live after one test.
 - Tests: `node tests/worker.test.mjs`, `node tests/bad-off-e2e.js` (fake OFF on :8790, worker on :8791).
 - v0.2.2 (after Mo's real phone test): text sent to OFF stops before footnotes / "may contain" / best-before; it is sent only if ≤2 unsure words remain in it or the person edited it, otherwise photo only (worker accepts empty text). Bulgarian part now also stops at "Неотворен…", "годен за…", "Партида". **Worker code in Cloudflare must be the v0.2.2 version** (photo-only support).
@@ -50,7 +52,6 @@ Today the supporter flag is local only (`?supporter=1`), so it can be bypassed. 
 - Barcode camera: is 2× zoom right, or should it be 1.5×? Do autofocus and the torch work?
 
 ## Next steps (not started)
-0. Switch on Open Food Facts sharing (Mo's setup, `worker/README.md`).
 1. Payments: Stripe Payment Link from BonbelleGroup into `SUPPORT_URL`, then a server-side check of supporters.
 2. Explain the rest of the library (by frequency) and add kid-mode lines for ingredients.
 3. Offline cache, cosmetics, recipes, "Без украси" mode (one sourced fact per additive).
