@@ -17,6 +17,7 @@ export function fakeOff(port, products) {
       for (const [k, v] of fd.entries()) fields[k] = typeof v === 'string' ? v : { file: v.name, type: v.type, size: v.size };
       log.push({ path: url.pathname, fields });
       if (url.pathname.includes('image_upload')) return send({ status: 'status ok', imagefield: fields.imagefield, imgid: 7 });
+      if (!products[fields.code] && fields.product_name_bg) products[fields.code] = { product_name_bg: fields.product_name_bg, created: true };
       const p = products[fields.code]; if (p && fields.ingredients_text_bg) p.ingredients_text_bg = fields.ingredients_text_bg;
       return send({ status: 1, status_verbose: 'fields saved' });
     }

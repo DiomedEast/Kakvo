@@ -1,6 +1,6 @@
 # Kakvo — project status (handoff note)
 
-Last updated: 7 November 2026, version 0.2.6. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
+Last updated: 7 November 2026, version 0.2.7. Live at https://diomedeast.github.io/Kakvo/ (GitHub Pages, branch `main`, root).
 
 ## What Kakvo is
 A free web app (PWA) for Bulgaria that explains what is in a food product in plain Bulgarian. Owner: Mo, sold by BonbelleGroup.
@@ -46,6 +46,14 @@ A free web app (PWA) for Bulgaria that explains what is in a food product in pla
 - Tests: `node tests/worker.test.mjs`, `node tests/bad-off-e2e.js` (fake OFF on :8790, worker on :8791).
 - v0.2.2 (after Mo's real phone test): text sent to OFF stops before footnotes / "may contain" / best-before; it is sent only if ≤2 unsure words remain in it or the person edited it, otherwise photo only (worker accepts empty text). Bulgarian part now also stops at "Неотворен…", "годен за…", "Партида". **Worker code in Cloudflare must be the v0.2.2 version** (photo-only support).
 - Text from photos can still contain number misreadings ("5,595" for "5,5%"); the photo goes with it as proof.
+
+## New products (v0.2.7, Mo's decision: "fix plus option 1")
+- Fix: a barcode Open Food Facts does not have, explained from photos, is now remembered on the phone (`labels` with name); the next scan shows it at once with "Още го няма в Open Food Facts".
+- Adding to Open Food Facts: after the explanation, "Помогни на другите" → `#/add/<code>`: product name, a front photo (required), preview of what is sent (ingredients text only if read clearly or corrected — same rule as for existing products — and the nutrition numbers the person confirmed; none for drinks), confirmation checkbox. Only for barcodes read by the camera (`session scanned`), not typed ones.
+- Worker `mode=new`: only if the barcode is not on Open Food Facts (409 if it exists, never overwrites); name + front + ingredients photo required; numbers range-checked (sat ≤ fat, sugars ≤ carbs); 5 new products per phone and 15 per connection per day. Creates the product (`product_name_bg`, `lang=bg`, `add_countries=Bulgaria`, `nutriment_*` per 100 g), then uploads `front_bg`, `ingredients_bg`, `nutrition_bg`.
+- Products created by `kakvoapp` and not yet checked by volunteers (`states_tags` without `en:checked`) show "добавен от потребител на Kakvo и още не е проверен".
+- **Needs the new worker code in Cloudflare** (Mo pastes `worker/contribute.js`). Not yet tested against the real Open Food Facts: confirm with one real product that writing to an unknown barcode creates it.
+- Tests: `node tests/worker.test.mjs` (9), `tests/new-product-e2e.js`.
 
 ## Paid plan (decided by Mo)
 €19,99/year, sold by BonbelleGroup. Paid: profiles + personal avoid list, sugar per portion, read aloud, child mode, "how much did I eat" calculator, "Без украси" mode, offline mode, early access to cosmetics, recipes.

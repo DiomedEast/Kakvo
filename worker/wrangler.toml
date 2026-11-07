@@ -7,7 +7,7 @@ compatibility_date = "2026-10-01"
 # Careful: "wrangler deploy" overwrites the dashboard variables with the values in this file.
 OFF_BASE = "https://world.openfoodfacts.org"
 ALLOWED_ORIGINS = "https://diomedeast.github.io"
-APP_VERSION = "0.2.4"
+APP_VERSION = "0.2.7"
 
 # Secrets (never in this file):
 #   npx wrangler secret put OFF_USER
