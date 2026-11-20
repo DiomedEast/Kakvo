@@ -656,9 +656,9 @@
       const text = ' ' + norm(res.text || '') + ' ';
       (IA.agents || []).forEach(a => {
         if (a.info) return;
-        let why = null;
-        for (const c of (a.add || [])) if (res.add.has(c)) { why = c; break; }
-        if (!why) for (const t of (a.ing || [])) if (res.ing.has(t)) { why = (ING.get(t) || {}).bg || t; break; }
+        let why = null, addCode = null, ingTag = null;
+        for (const c of (a.add || [])) if (res.add.has(c)) { why = c; addCode = c; break; }
+        if (!why) for (const t of (a.ing || [])) if (res.ing.has(t)) { why = (ING.get(t) || {}).bg || t; ingTag = t; break; }
         if (!why && (a.bgwords || []).length && res.text && iarcNeedsOk(a, res)) {
           for (const w of a.bgwords) {
             const k = norm(w);
@@ -666,7 +666,7 @@
             if (i >= 0 && !LETTER.test(text[i - 1] || '') ) { why = w; break; }
           }
         }
-        if (why && !out.has(a.id)) out.set(a.id, iarcEntry(a, why));
+        if (why && !out.has(a.id)) { const e = iarcEntry(a, why); e.addCode = addCode; e.ingTag = ingTag; out.set(a.id, e); }
       });
       return [...out.values()].sort((x, y) => IARC_RANK[x.group] - IARC_RANK[y.group]);
     }

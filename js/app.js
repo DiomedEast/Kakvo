@@ -198,7 +198,8 @@
     const order = ['grain', 'sugar', 'fat', 'cocoa', 'dairy', 'other'];
     const chips = order.filter(g => groups[g]).map(g => `<span class="chip g-${g}"><span class="dot"></span>${LABEL[g]}: ${esc(groups[g].slice(0, 4).join(', '))}${groups[g].length > 4 ? ' и още ' + (groups[g].length - 4) : ''}</span>`).join('');
     const unk = res.unk.length ? `<span class="chip g-unk">Още ${res.unk.length} без обяснение</span>` : '';
-    return chips || unk ? `<div style="display:flex;flex-direction:column;gap:10px"><h2>Съставът по групи</h2><div class="chips">${chips}${unk}</div></div>` : '';
+    const n = order.filter(g => groups[g]).length;
+    return chips || unk ? acc('groups', 'Съставът по групи', n ? n + (n === 1 ? ' група' : ' групи') : '', `<div class="chips">${chips}${unk}</div>`, false) : '';
   }
 
   const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
@@ -223,8 +224,9 @@
     const als = E.allergens(res);
     const alNote = als.length ? `<div class="note">Разпознахме алергени: <b>${esc(als.join(', '))}</b>. На етикета те трябва да са откроени, например с удебелен шрифт. При алергия винаги проверявай етикета.</div>` : '';
     const notes = (res.labelNotes || []).map(n => { const g = E.glossFor(n); return `<div class="flag info"><h3>Етикетът пише: „${esc(n)}“</h3>${g ? `<p>${esc(g.text)}</p>${g.src.length ? srcLinks(g.src) : ''}` : ''}</div>`; }).join('');
-    return `<div style="display:flex;flex-direction:column;gap:6px"><h2>Какво ядеш: съставка по съставка</h2>
-      <span style="font-size:14px;color:var(--muted)">По реда на етикета: първата съставка е най-много. Докосни, за да видиш повече.</span>${alNote}<div style="display:flex;flex-direction:column">${rows}</div>${notes ? '<div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">' + notes + '</div>' : ''}</div>`;
+    const n = list.length;
+    return acc('items', 'Какво ядеш', n + (n === 1 ? ' съставка' : ' съставки'),
+      `<span style="font-size:14px;color:var(--muted)">По реда на етикета: първата съставка е най-много. Докосни, за да видиш повече.</span>${alNote}<div style="display:flex;flex-direction:column">${rows}</div>${notes ? '<div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">' + notes + '</div>' : ''}`, false);
   }
 
   function labelHtml(text, res) {
@@ -232,7 +234,7 @@
     let html = '', pos = 0;
     for (const s of res.spans.slice().sort((a, b) => a.start - b.start)) { html += esc(text.slice(pos, s.start)) + `<span class="k-${s.kind}">${esc(text.slice(s.start, s.end))}</span>`; pos = s.end; }
     html += esc(text.slice(pos));
-    return `<div style="display:flex;flex-direction:column;gap:10px"><h2>Целият състав</h2><p class="label" translate="no">${html}</p></div>`;
+    return acc('label', 'Целият състав', '', `<p class="label" translate="no">${html}</p>`, false);
   }
 
   function avoidHtml(res, text) {
@@ -270,21 +272,48 @@
       <div class="meta2">IARC, монография том ${esc(String(e.vol))}, оценка ${esc(String(e.year))} г.${e.url ? ` · <a href="${esc(e.url)}" target="_blank" rel="noopener">Виж монографията</a>` : ''}</div>
     </div>`;
   }
-  /* At a glance on the product card: groups 1 and 2A only. 2B and 3 are counted and
-     explained on the ingredient page — 2B is the widest group and 3 means "not classifiable". */
+  /* Collapsible section. Native <details>: no JS needed to open it, and it still works
+     with the keyboard and with JS off. The open/closed choice is remembered per section,
+     so someone who always reads the ingredient list gets it open next time. */
+  function acc(id, title, meta, body, defOpen) {
+    if (!body) return '';
+    const saved = store.get('acc', {});
+    const open = Object.prototype.hasOwnProperty.call(saved, id) ? saved[id] : !!defOpen;
+    return `<details class="acc" data-acc="${esc(id)}"${open ? ' open' : ''}>
+      <summary><span class="acch">${esc(title)}</span>${meta ? `<span class="accmeta">${esc(meta)}</span>` : ''}<span class="accchev">${icon('chev', 20, 2.4)}</span></summary>
+      <div class="accbody">${body}</div></details>`;
+  }
+  function wireAcc() {
+    document.querySelectorAll('details[data-acc]').forEach(d => d.addEventListener('toggle', () => {
+      const saved = store.get('acc', {}); saved[d.dataset.acc] = d.open;
+      try { store.set('acc', saved); } catch (e) { /* storage full */ }
+    }));
+  }
+
+  /* At a glance on the product card: one compact row per agent, groups 1 and 2A only.
+     The full entry — group meaning, comparator, dose side, monograph — is one tap away on
+     the ingredient or additive page, so nothing is lost by keeping this short.
+     2B and 3 are counted, never shown as a badge: 2B is the widest group and group 3
+     explicitly means "not classifiable". */
+  function iarcRowHref(e) {
+    if (e.addCode) return `#/a/${encodeURIComponent(e.addCode)}?from=${encodeURIComponent(location.hash || '#/')}`;
+    if (e.ingTag) return `#/i/${encodeURIComponent(e.ingTag)}?from=${encodeURIComponent(location.hash || '#/')}`;
+    return '#/iarc';
+  }
   function iarcHtml(res) {
     if (!E.iarcSummary) return '';
     const s = E.iarcSummary(res);
     if (!s.all.length) return '';
-    const more = s.rest ? `<p class="iarc-more">Още ${s.rest} ${s.rest === 1 ? 'съставка е' : 'съставки са'} в списъка на IARC, в група 2B или 3. ${s.rest === 1 ? 'Тя е обяснена' : 'Те са обяснени'} при съставките по-долу.</p>` : '';
-    if (!s.card.length) return `<div style="display:flex;flex-direction:column;gap:10px"><h2>Списъкът на IARC</h2><div class="iarc-what">${esc(s.what)}</div>${more}</div>`;
-    return `<div style="display:flex;flex-direction:column;gap:10px">
-      <h2>Списъкът на IARC</h2>
-      <div class="iarc-what">${esc(s.what)}</div>
-      ${s.card.map(e => iarcBox(e)).join('')}
-      ${more}
-      <a class="pillbtn" href="#/iarc">Какво значат групите на IARC</a>
-    </div>`;
+    const more = s.rest ? `<p class="iarc-more">Още ${s.rest} ${s.rest === 1 ? 'съставка е' : 'съставки са'} в група 2B или 3 — ${s.rest === 1 ? 'обяснена е' : 'обяснени са'} при съставките по-долу.</p>` : '';
+    const rows = s.card.map(e => `<a class="iarcrow" href="${iarcRowHref(e)}">
+      <span class="gtag">${esc((e.groupInfo || {}).n || 'IARC')}</span>
+      <span class="nm">${esc(e.name)}</span><span class="yr">${esc(String(e.year))}</span>${icon('chev', 18, 2)}</a>`).join('');
+    const meta = s.card.length ? (s.card.length === 1 ? '1 съставка' : s.card.length + ' съставки') : 'няма в група 1 или 2A';
+    return acc('iarc', 'Списъкът на IARC', meta,
+      `${rows ? `<div style="display:flex;flex-direction:column">${rows}</div>` : ''}
+       ${more}
+       <div class="iarc-what">${esc(s.what)}</div>
+       <a class="pillbtn" href="#/iarc">Какво значат групите на IARC</a>`, true);
   }
   /* Reference page: every food-related agent, including the ones a label never shows. */
   function viewIarc() {
@@ -353,7 +382,7 @@
       ${tilesHtml(nut, kind, !opts.code)}
       ${sugarHtml(nut, kind, opts.serving)}
       ${calcHtml(nut, kind)}
-      ${flags.length && !opts.badList ? '<div style="display:flex;flex-direction:column;gap:10px"><h2>Важно да знаеш</h2>' + flags.map(flagHtml).join('') + '</div>' : ''}
+      ${flags.length && !opts.badList ? acc('flags', 'Важно да знаеш', flags.length + (flags.length === 1 ? ' бележка' : ' бележки'), flags.map(flagHtml).join(''), true) : ''}
       ${opts.badList ? '' : groupsHtml(res)}
       ${opts.badList ? '' : itemsHtml(res, opts.back)}
       ${labelHtml(opts.text, res)}
@@ -363,6 +392,7 @@
   }
 
   function wireProduct(res, nut, kind, share) {
+    wireAcc();
     wireCalc();
     const listen = document.getElementById('listen');
     if (listen) listen.addEventListener('click', () => {
