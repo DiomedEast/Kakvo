@@ -175,3 +175,16 @@ textarea.box { padding: 12px; min-height: 180px; border-radius: 16px; resize: ve
 .share-off { display: flex; gap: 12px; align-items: flex-start; background: var(--gbg); border-radius: 14px; padding: 12px 14px; font-size: 14px; line-height: 1.45; cursor: pointer; }
 .share-off input { width: 22px; height: 22px; margin: 2px 0 0; accent-color: var(--g); flex-shrink: 0; }
 .share-off b { display: block; font-size: 15px; margin-bottom: 2px; }
+
+/* IARC classifications. Deliberately neutral: the group number carries the meaning.
+   No red/amber/green — a colour scale would read as a verdict, and IARC groups rank
+   the strength of the evidence, not how dangerous a portion is. */
+.iarc { border: 1.5px solid var(--line); border-left: 5px solid var(--ink); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 7px; background: #FFFFFF; }
+.iarc h3 { font-size: 16px; font-weight: 800; margin: 0; }
+.iarc p { margin: 0; font-size: 15px; line-height: 1.45; }
+.iarc .gtag { align-self: flex-start; font: 800 13px var(--body); letter-spacing: .02em; background: var(--ink); color: #FFFFFF; padding: 4px 10px; border-radius: 8px; }
+.iarc .meta2 { font-size: 13px; color: var(--muted); }
+.iarc .risk { background: var(--soft); border-radius: 12px; padding: 10px 12px; font-size: 14px; line-height: 1.45; }
+.iarc a { color: var(--ink); }
+.iarc-what { background: var(--soft); border-radius: 14px; padding: 12px 14px; font-size: 14px; line-height: 1.45; }
+.iarc-more { font-size: 14px; color: var(--muted); }

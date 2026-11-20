@@ -46,7 +46,7 @@
     const halfCube = `<span style="display:inline-block;width:${w / 2}px;overflow:hidden">${CUBE(w)}</span>`;
     return `<div class="cubes" aria-hidden="true">${CUBE(w).repeat(whole)}${half ? halfCube : ''}${n > max ? `<span class="more">+${fmt(n - max)}</span>` : ''}</div>`;
   }
-  const FOOT = (code) => `<div class="foot">Данни: <a href="${code ? 'https://world.openfoodfacts.org/product/' + esc(code) : 'https://world.openfoodfacts.org'}" target="_blank" rel="noopener">Open Food Facts</a> (лиценз ODbL)${code ? ' · <a href="https://world.openfoodfacts.org/product/' + esc(code) + '" target="_blank" rel="noopener">Поправи данните</a>' : ''}. Kakvo обяснява, не лекува. Информацията не е медицински съвет. При алергия винаги чети етикета.</div>`;
+  const FOOT = (code) => `<div class="foot">Данни: <a href="${code ? 'https://world.openfoodfacts.org/product/' + esc(code) : 'https://world.openfoodfacts.org'}" target="_blank" rel="noopener">Open Food Facts</a> (лиценз ODbL)${code ? ' · <a href="https://world.openfoodfacts.org/product/' + esc(code) + '" target="_blank" rel="noopener">Поправи данните</a>' : ''}. Kakvo обяснява, не лекува. Информацията не е медицински съвет. При алергия винаги чети етикета. · <a href="#/iarc">Списъкът на IARC</a> · <a href="#/independent">Независим проект</a></div>`;
   const srcLinks = list => `<div class="src">Източник: ${list.map(s => `<a href="${s.u}" target="_blank" rel="noopener">${esc(s.t)}</a>`).join(' · ')}</div>`;
   const flagHtml = f => `<div class="flag ${f.level === 'warn' ? 'warn' : ''}"><h3>${esc(f.title)}${f.codes && f.codes.length > 1 ? ' (' + f.codes.join(', ') + ')' : ''}</h3><p>${esc(f.text)}</p>${srcLinks(f.src)}</div>`;
 
@@ -249,6 +249,94 @@
       <div class="prod"><div class="img">${img ? `<img src="${esc(img)}" alt="">` : 'няма снимка'}</div><div><h1>${esc(title)}</h1>${meta ? `<div class="meta">${esc(meta)}</div>` : ''}</div></div>${t}</header>`;
   }
 
+  /* ---- IARC (WHO) ----
+     Rule, on purpose: the group is the output. Kakvo never turns it into a score or a
+     colour scale, always prints the year, always names other agents in the same group,
+     and always shows the dose side (EFSA / JECFA) next to the hazard side when we have it. */
+  function iarcSrcHtml(list) {
+    return (list || []).filter(Boolean).map(sx => `<a href="${esc(sx.u)}" target="_blank" rel="noopener">${esc(sx.t)}</a>`).join(' · ');
+  }
+  function iarcBox(e, opts) {
+    opts = opts || {};
+    const g = e.groupInfo || {};
+    return `<div class="iarc">
+      <span class="gtag">${esc(g.n || 'IARC')}</span>
+      <h3>${esc(opts.name || e.name)} — ${esc((g.t || '').toLowerCase())}</h3>
+      ${e.what && opts.what !== false ? `<p>${esc(e.what)}</p>` : ''}
+      ${g.d ? `<p>${esc(g.d)}</p>` : ''}
+      ${e.cond ? `<p><b>${esc(e.cond)}</b></p>` : ''}
+      ${g.ex ? `<p class="meta2">${esc(g.ex)}</p>` : ''}
+      ${e.risk ? `<div class="risk"><b>Колко е безопасно да се яде е друг въпрос.</b> ${esc(e.risk)}${e.riskSrc && e.riskSrc.length ? ' <span class="src">' + iarcSrcHtml(e.riskSrc) + '</span>' : ''}</div>` : ''}
+      <div class="meta2">IARC, монография том ${esc(String(e.vol))}, оценка ${esc(String(e.year))} г.${e.url ? ` · <a href="${esc(e.url)}" target="_blank" rel="noopener">Виж монографията</a>` : ''}</div>
+    </div>`;
+  }
+  /* At a glance on the product card: groups 1 and 2A only. 2B and 3 are counted and
+     explained on the ingredient page — 2B is the widest group and 3 means "not classifiable". */
+  function iarcHtml(res) {
+    if (!E.iarcSummary) return '';
+    const s = E.iarcSummary(res);
+    if (!s.all.length) return '';
+    const more = s.rest ? `<p class="iarc-more">Още ${s.rest} ${s.rest === 1 ? 'съставка е' : 'съставки са'} в списъка на IARC, в група 2B или 3. ${s.rest === 1 ? 'Тя е обяснена' : 'Те са обяснени'} при съставките по-долу.</p>` : '';
+    if (!s.card.length) return `<div style="display:flex;flex-direction:column;gap:10px"><h2>Списъкът на IARC</h2><div class="iarc-what">${esc(s.what)}</div>${more}</div>`;
+    return `<div style="display:flex;flex-direction:column;gap:10px">
+      <h2>Списъкът на IARC</h2>
+      <div class="iarc-what">${esc(s.what)}</div>
+      ${s.card.map(e => iarcBox(e)).join('')}
+      ${more}
+      <a class="pillbtn" href="#/iarc">Какво значат групите на IARC</a>
+    </div>`;
+  }
+  /* Reference page: every food-related agent, including the ones a label never shows. */
+  function viewIarc() {
+    const all = E.iarcAll ? E.iarcAll() : [];
+    const nc = E.iarcNotClassified ? E.iarcNotClassified() : null;
+    const order = ['1', '2A', '2B', '3'];
+    const secs = order.map(g => {
+      const list = all.filter(a => a.group === g);
+      if (!list.length) return '';
+      const gi = list[0].groupInfo || {};
+      return `<h2>${esc(gi.n || g)} — ${esc((gi.t || '').toLowerCase())}</h2>
+        <p style="margin:0;font-size:15px;line-height:1.5">${esc(gi.d || '')}</p>
+        <p class="meta2" style="font-size:13px;color:var(--muted);margin:0">${esc(gi.ex || '')}</p>
+        ${list.map(a => `<div class="card" style="gap:6px"><b>${esc(a.name)}</b>${a.what ? `<p style="margin:0;font-size:15px;line-height:1.45">${esc(a.what)}</p>` : ''}${a.cond ? `<p style="margin:0;font-size:15px;line-height:1.45"><b>${esc(a.cond)}</b></p>` : ''}${a.risk ? `<p style="margin:0;font-size:14px;line-height:1.45;color:var(--muted)">${esc(a.risk)}</p>` : ''}<span class="src">Том ${esc(String(a.vol))}, оценка ${esc(String(a.year))} г.${a.url ? ` · <a href="${esc(a.url)}" target="_blank" rel="noopener">монография</a>` : ''}</span></div>`).join('')}`;
+    }).join('');
+    const src = (E.IA && E.IA.src) || {};
+    view(`<header class="head">${LEAF}<div class="row"><a class="rbtn" href="#/" aria-label="Назад">${icon('back')}</a>${LOGO}<span style="width:44px"></span></div>
+      <h1 style="font-weight:900;font-size:30px;line-height:1.05">Списъкът на IARC</h1>
+      <div class="meta">Международна агенция за изследване на рака, СЗО</div></header>
+      <div class="wrap">
+      <p class="lead">${esc((E.IA && E.IA.what) || '')}</p>
+      <div class="note">Kakvo показва групата такава, каквато е, с годината и връзка към монографията. Не я превръщаме в оценка, в точки или в цвят — групите на IARC подреждат силата на доказателствата, а не колко е опасна една порция.</div>
+      ${secs}
+      ${nc ? `<h2>${esc(nc.t)}</h2><div class="note">${esc(nc.d)}</div>` : ''}
+      <div class="src" style="margin-top:4px">Източник: ${iarcSrcHtml([src.list, src.agents, src.preamble])}${(E.IA && E.IA.checked) ? ' · Проверено на ' + esc(E.IA.checked) : ''}</div>
+      </div>${FOOT()}`);
+  }
+  /* Independence: Kakvo's only customer is the reader. */
+  function viewIndependent() {
+    view(`<header class="head">${LEAF}<div class="row"><a class="rbtn" href="#/" aria-label="Назад">${icon('back')}</a>${LOGO}<span style="width:44px"></span></div>
+      <h1 style="font-weight:900;font-size:30px;line-height:1.05">Независим проект</h1></header>
+      <div class="wrap">
+      <p class="lead">Kakvo не взема пари от марки. Няма партньорски комисиони, няма реферални връзки, няма платени места в резултатите. Абонаментът е единственият приход. Единственият ни клиент си ти.</p>
+      <div class="card" style="gap:10px">
+        <b>Какво значи това на практика</b>
+        <p style="margin:0;font-size:15px;line-height:1.5">Никой производител не може да плати, за да изглежда продуктът му по-добре или да не се появи предупреждение.</p>
+        <p style="margin:0;font-size:15px;line-height:1.5">Не печелим, когато купиш нещо. Не ти продаваме „по-добрата“ алтернатива и не получаваме процент от магазин.</p>
+        <p style="margin:0;font-size:15px;line-height:1.5">Не даваме обща оценка на продукт. Показваме какво пише на етикета и какво казват официалните източници, с връзка към всеки от тях.</p>
+      </div>
+      <h2>Откъде идват фактите</h2>
+      <div class="card" style="gap:8px">
+        <p style="margin:0;font-size:15px;line-height:1.5"><b>EFSA</b> — Европейският орган за безопасност на храните: оценките на добавките и безопасните дневни приеми.</p>
+        <p style="margin:0;font-size:15px;line-height:1.5"><b>IARC</b> — агенцията за рака към СЗО: класификациите по групи. <a href="#/iarc">Какво значат групите</a></p>
+        <p style="margin:0;font-size:15px;line-height:1.5"><b>Europe PMC</b> — публикуваните научни изследвания.</p>
+        <p style="margin:0;font-size:15px;line-height:1.5"><b>Европейското законодателство</b> — кое е разрешено, в кои храни и в какви количества.</p>
+        <p style="margin:0;font-size:15px;line-height:1.5"><b>Open Food Facts</b> — отворената база с продукти (лиценз ODbL).</p>
+      </div>
+      <div class="note">Ако нещо в Kakvo няма официален източник, то е описание на съставката, а не твърдение за здравето. Твърдение за здраве показваме само с източник, който можеш да отвориш и да провериш сам.</div>
+      <a class="btn outline" href="#/support" style="margin-top:4px">За абонамента</a>
+      </div>${FOOT()}`);
+  }
+
   function productBody(res, nut, kind, opts) {
     const flags = E.flagsFor(res);
     const traces = opts.traces && opts.traces.length ? opts.traces : (res.traces || []);
@@ -261,6 +349,7 @@
       ${opts.unreadable ? `<p class="lead">Не успяхме да разчетем достатъчно от състава.</p><div class="note">Разпознахме само ${res.ing.size + res.add.size} от прочетените думи, затова не можем да кажем какво има в продукта. Снимай отблизо само българския текст или го напиши.<div class="grid2" style="margin-top:10px"><a class="btn outline" href="#/photo" style="min-height:44px;font-size:14px">Снимай отново</a><a class="btn outline" href="#/type" style="min-height:44px;font-size:14px">Напиши сам</a></div></div>` : `<p class="lead">${esc(E.summary(res, nut, kind, opts.badList))}</p>`}
       <button class="pillbtn" id="listen">${icon('speaker', 18)}Слушай обяснението ${isSupporter() ? '' : SUP}</button>
       ${avoidHtml(res, opts.text)}
+      ${opts.badList || opts.unreadable ? '' : iarcHtml(res)}
       ${tilesHtml(nut, kind, !opts.code)}
       ${sugarHtml(nut, kind, opts.serving)}
       ${calcHtml(nut, kind)}
@@ -398,6 +487,7 @@
       <div class="wrap">${roles}
       ${a.pct != null ? `<div class="card" style="flex-direction:row;align-items:baseline;gap:8px"><span style="font-family:var(--display);font-weight:900;font-size:24px">${a.pct >= 1 ? Math.round(a.pct) + '%' : '&lt;1%'}</span><span style="font-size:15px">от продуктите със състав в България я съдържат (данни Open Food Facts).</span></div>` : ''}
       ${a.flag ? flagHtml(a.flag) : ''}
+      ${E.iarcForAdditive && E.iarcForAdditive(code) ? iarcBox(E.iarcForAdditive(code), { name: a.name.charAt(0).toUpperCase() + a.name.slice(1), what: false }) + '<a class="pillbtn" href="#/iarc">Какво значат групите на IARC</a>' : ''}
       <div class="note">Всяка добавка с Е-номер е оценена и разрешена в ЕС за определени храни и количества. Kakvo показва предупреждения само когато има официален източник.</div>
       </div>${FOOT()}`);
   }
@@ -412,6 +502,7 @@
       ${x.what ? `<h2>Какво е</h2><p class="lead" style="margin:0">${esc(x.what)}</p>` : `<p class="lead">Още нямаме подробно обяснение за тази съставка. Тя е от групата „${esc(x.group.toLowerCase())}“.</p>`}
       ${x.why ? `<h2>Защо е в храната</h2><p style="margin:0;font-size:16px;line-height:1.5">${esc(x.why)}</p>` : ''}
       ${labelHtml2(label)}${x.notes.map(noteHtml).join('')}
+      ${E.iarcForIngredient && E.iarcForIngredient(tag) ? iarcBox(E.iarcForIngredient(tag), { name: cap(x.name), what: false }) + '<a class="pillbtn" href="#/iarc">Какво значат групите на IARC</a>' : ''}
       ${x.pct != null ? `<div class="card" style="flex-direction:row;align-items:baseline;gap:8px"><span style="font-family:var(--display);font-weight:900;font-size:24px">${x.pct >= 1 ? Math.round(x.pct) + '%' : '&lt;1%'}</span><span style="font-size:15px">от продуктите със състав в България я съдържат (данни Open Food Facts).</span></div>` : ''}
       <div class="note">Обясненията на Kakvo казват какво е съставката и защо е там. Предупреждения показваме само с официален източник.</div>
       </div>${FOOT()}`);
@@ -865,7 +956,7 @@
         <form class="manual" id="manual"><label for="code" class="sr">Баркод</label><input id="code" inputmode="numeric" autocomplete="off" placeholder="или въведи баркода"><button type="submit">Търси</button></form>
         <a class="btn outline" href="#/photo">${icon('camera')}Няма баркод? Снимай състава</a>
         ${recent.length ? `<div class="recent"><div style="font:700 13px var(--display);color:var(--muted)">Последно</div>${recent.map(h => `<a href="${h.code ? '#/p/' + esc(h.code) : '#/history'}"><span>${esc(h.name)}</span>${pillFor(h)}</a>`).join('')}</div>` : ''}
-        <a class="banner" href="#/support"><span><b>Kakvo е 100% независим.</b> Без реклами и без пари от марки.</span><strong>Подкрепи</strong></a>
+        <a class="banner" href="#/independent"><span><b>Kakvo е 100% независим.</b> Без реклами, без пари от марки, без комисиони.</span><strong>Защо</strong></a>
       </div></div>`, true);
     document.getElementById('manual').addEventListener('submit', e => {
       e.preventDefault(); const c = document.getElementById('code').value.replace(/\D/g, '');
@@ -1075,15 +1166,18 @@
     if (path === '/history') return viewHistory();
     if (path === '/profiles') return viewProfiles();
     if (path === '/support') return viewSupport();
+    if (path === '/iarc') return viewIarc();
+    if (path === '/independent') return viewIndependent();
     return viewScan();
   }
 
   async function boot() {
     try {
-      const [r, x] = await Promise.all([fetch('data/library.json'), fetch('data/explain.json').catch(() => null)]);
+      const [r, x, ia] = await Promise.all([fetch('data/library.json'), fetch('data/explain.json').catch(() => null), fetch('data/iarc.json').catch(() => null)]);
       DB = await r.json();
       let EX = null; try { EX = x && x.ok ? await x.json() : null; } catch (e) { EX = null; }
-      E = KakvoEngine.createEngine(DB, EX);
+      let IA = null; try { IA = ia && ia.ok ? await ia.json() : null; } catch (e) { IA = null; }
+      E = KakvoEngine.createEngine(DB, EX, IA);
     } catch (e) { app.innerHTML = '<div class="center"><h1>Kakvo не се зареди</h1><p>Провери интернета и опитай пак.</p></div>'; return; }
     window.addEventListener('hashchange', route);
     route();

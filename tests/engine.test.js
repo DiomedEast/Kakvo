@@ -5,7 +5,8 @@ const fs = require('fs');
 const { createEngine } = require('../js/engine.js');
 const DB = require('../data/library.json');
 const EX = require('../data/explain.json');
-const E = createEngine(DB, EX);
+const IA = require('../data/iarc.json');
+const E = createEngine(DB, EX, IA);
 let n = 0; const t = (name, fn) => { fn(); n++; console.log('ok', name); };
 
 t('E-numbers in Cyrillic and Latin, sub-types', () => {
@@ -156,3 +157,48 @@ const en = E.analyseText('Ingredients: cocoa mass, sugar, emulsifier: lecithins 
 assert.ok(en.add.has('E322') && en.ing.has('sugar') && !en.ing.has('milk') && E.readable(en));
 assert.ok(!E.readable(E.analyseText('Kakaotasha, zosket, totefeteg, wapyuezaai, sbvsaet')));
 console.log('ok nutrition table, English ingredients, unreadable guard');
+
+// ---- IARC classifications -------------------------------------------------
+// The rules these lock in: the group is reported, never scored; only groups 1 and 2A
+// reach the product card; the word list cannot fire without a meat signal; and every
+// entry carries a year and a monograph link.
+{
+  const sum = txt => E.iarcSummary(E.analyseText(txt));
+
+  const lukanka = sum('Съставки: свинско месо, сол, консервант E250, подправки. Луканка традиционна.');
+  assert.deepStrictEqual(lukanka.card.map(x => x.group), ['1', '2A', '2A'], 'lukanka: group 1 first');
+  assert.strictEqual(lukanka.card[0].id, 'processed-meat');
+  assert.ok(lukanka.all.every(x => x.year && x.vol && x.url), 'every entry has year, volume and monograph link');
+
+  // A diet drink must NOT get a card badge: aspartame is 2B, the widest group.
+  const cola = sum('Съставки: вода, въглероден диоксид, оцветител E150d, подсладител E951, киселина E338.');
+  assert.strictEqual(cola.card.length, 0, 'no 2B agent reaches the product card');
+  assert.strictEqual(cola.rest, 2, 'aspartame and 4-MEI are counted, not shown');
+  assert.deepStrictEqual(cola.all.map(x => x.group), ['2B', '2B']);
+
+  // "пушен" on its own is not processed meat.
+  const cheese = sum('Съставки: пастьоризирано краве мляко, сол, сирищни ензими, пушен аромат.');
+  assert.strictEqual(cheese.all.length, 0, 'smoked cheese is not processed meat');
+
+  // Group 3 means "not classifiable", so it never reaches the card either.
+  const coffee = sum('Съставки: печено смляно кафе.');
+  assert.strictEqual(coffee.card.length, 0);
+  assert.deepStrictEqual(coffee.all.map(x => x.group), ['3']);
+
+  // Hazard is always paired with the dose side where an official body has ruled on it.
+  const asp = E.iarcForAdditive('E951');
+  assert.ok(asp && asp.group === '2B' && asp.year === 2023 && /JECFA/.test(asp.risk), 'aspartame carries the JECFA counterpart');
+  const nit = E.iarcForAdditive('E250');
+  assert.ok(nit && nit.cond && /нитрозамин/.test(nit.cond), 'nitrite states the condition of the classification');
+
+  // Reference-only agents are never matched to a label.
+  assert.ok(E.iarcAll().some(a => a.id === 'acrylamide'), 'acrylamide is on the reference page');
+  assert.ok(!sum('Съставки: картофи, слънчогледово олио, сол.').all.some(a => a.id === 'acrylamide'), 'acrylamide is never matched to a product');
+
+  // Every group used by an agent must be defined, and every source key must resolve.
+  E.iarcAll().forEach(a => {
+    assert.ok(a.groupInfo && a.groupInfo.n, 'group defined for ' + a.id);
+    (a.riskSrc || []).forEach(sx => assert.ok(sx && sx.u, 'risk source resolves for ' + a.id));
+  });
+  console.log('ok IARC: group 1 and 2A on the card, 2B and 3 only in detail, meat guard, dose side paired');
+}

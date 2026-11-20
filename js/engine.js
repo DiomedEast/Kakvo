@@ -98,8 +98,9 @@
   /* Ingredient tags that are really an additive we already explain. */
   const ING_TO_ADD = { 'soya-lecithin': 'E322', 'sunflower-lecithin': 'E322', 'rapeseed-lecithin': 'E322', 'modified-starch': 'E14X', 'modified-corn-starch': 'E14X' };
 
-  function createEngine(DB, EX) {
+  function createEngine(DB, EX, IA) {
     EX = EX || { src: {}, notes: {}, x: {}, i: {}, a: {} };
+    IA = IA || { src: {}, groups: {}, agents: [], what: '' };
     const ING = new Map(), NAMES = new Map();
     DB.i.forEach(x => { ING.set(x.t, x); const k = norm(x.bg); if (!NAMES.has(k)) NAMES.set(k, { ing: x }); });
     Object.keys(DB.a).forEach(c => { NAMES.set(norm(DB.a[c].bg), { add: c }); });
@@ -172,6 +173,8 @@
 
     function analyseText(text, res) {
       res = res || emptyResult();
+      /* Keep the raw label text: the IARC word list (луканка, суджук...) reads it. */
+      if (!res.text) res.text = text;
       const fn = footnotes(text); if (Object.keys(fn.map).length) res.fn = fn.map;
       /* Product name and other text before "Съставки:" are not ingredients. */
       const head = /(съставки|състав|ingredients?|ingrédients)\s*:/i.exec(text); const listStart = head ? head.index + head[0].length : 0;
@@ -610,7 +613,78 @@
       return out;
     }
 
-    return { items, ingredientInfo, allergens, glossFor, EX, extractBulgarian, extractEnglish, readable, parseNutrition, mergeNutrition, energyCheck, numCands, analyseText, analyseProduct, summary, kidSummary, flagsFor, additiveInfo, level, cubes, fmt, LEVEL_WORD, LIMITS, suggest, avoidHits, AVOID_RULES, offAdditive, SRC, ING };
+    /* ---------------- IARC (WHO) classifications ---------------- */
+    /* The group is the output. Kakvo never turns it into a score, a colour scale or a verdict.
+       IARC rates how strong the evidence is that something can cause cancer, not how risky the
+       amount on your plate is; the dose side is EFSA's and JECFA's job and is shown next to it. */
+    const IARC_RANK = { '1': 0, '2A': 1, '2B': 2, '3': 3 };
+    /* Groups 1 and 2A are shown on the product card. 2B and 3 only inside the ingredient page:
+       2B is the widest group and group 3 explicitly means "not classifiable", so showing either
+       as a warning would misread the source. */
+    const IARC_ON_CARD = new Set(['1', '2A']);
+    const IARC_MEAT = new Set(['meat', 'pork', 'pork-meat', 'beef', 'beef-meat', 'veal', 'veal-meat',
+      'poultry', 'poultry-meat', 'chicken', 'chicken-meat', 'turkey-meat', 'pork-leg', 'pork-loin',
+      'ham', 'bacon', 'lamb', 'lamb-meat', 'mutton', 'pork-protein', 'beef-protein', 'pork-liver']);
+    const IARC_CURE = new Set(['E249', 'E250', 'E251', 'E252']);
+    const IARC_BY_ADD = new Map(), IARC_BY_ING = new Map();
+    (IA.agents || []).forEach(a => {
+      (a.add || []).forEach(c => { if (!IARC_BY_ADD.has(c)) IARC_BY_ADD.set(c, a); });
+      (a.ing || []).forEach(t => { if (!IARC_BY_ING.has(t)) IARC_BY_ING.set(t, a); });
+    });
+
+    function iarcGroup(g) { return (IA.groups || {})[g] || null; }
+    function iarcSrc(keys) { return (keys || []).map(k => (IA.src || {})[k]).filter(Boolean); }
+    /* One agent, shaped for display. `why` says what matched on this label. */
+    function iarcEntry(a, why) {
+      return { id: a.id, name: a.bg, en: a.en, group: a.g, groupInfo: iarcGroup(a.g), vol: a.vol, year: a.y,
+        url: a.u, what: a.w || null, cond: a.cond || null, risk: a.risk || null,
+        riskSrc: iarcSrc(a.rsrc), src: (IA.src || {}).list || null, why: why || null, onCard: IARC_ON_CARD.has(a.g) };
+    }
+    /* `needs: "meat"` guards the word list: "пушен" on its own is not processed meat. */
+    function iarcNeedsOk(a, res) {
+      if (a.needs !== 'meat') return true;
+      for (const t of res.ing.keys()) if (IARC_MEAT.has(t)) return true;
+      for (const c of res.add.keys()) if (IARC_CURE.has(c)) return true;
+      return false;
+    }
+    /* Every classified agent we can actually see on this label. Reference-only agents
+       (acrylamide, aflatoxins, very hot drinks...) are never matched to a product: they are
+       not ingredients and do not appear on a label. */
+    function iarcFor(res) {
+      if (!res) return [];
+      const out = new Map();
+      const text = ' ' + norm(res.text || '') + ' ';
+      (IA.agents || []).forEach(a => {
+        if (a.info) return;
+        let why = null;
+        for (const c of (a.add || [])) if (res.add.has(c)) { why = c; break; }
+        if (!why) for (const t of (a.ing || [])) if (res.ing.has(t)) { why = (ING.get(t) || {}).bg || t; break; }
+        if (!why && (a.bgwords || []).length && res.text && iarcNeedsOk(a, res)) {
+          for (const w of a.bgwords) {
+            const k = norm(w);
+            const i = text.indexOf(k);
+            if (i >= 0 && !LETTER.test(text[i - 1] || '') ) { why = w; break; }
+          }
+        }
+        if (why && !out.has(a.id)) out.set(a.id, iarcEntry(a, why));
+      });
+      return [...out.values()].sort((x, y) => IARC_RANK[x.group] - IARC_RANK[y.group]);
+    }
+    /* What the product card shows at a glance: groups 1 and 2A listed, the rest only counted. */
+    function iarcSummary(res) {
+      const all = iarcFor(res);
+      const card = all.filter(x => x.onCard);
+      return { all, card, rest: all.length - card.length, top: all.length ? all[0].group : null,
+        what: IA.what || '', src: (IA.src || {}).list || null, checked: IA.checked || null };
+    }
+    function iarcForAdditive(code) { const a = IARC_BY_ADD.get(code); return a ? iarcEntry(a, code) : null; }
+    function iarcForIngredient(tag) { const a = IARC_BY_ING.get(tag); return a ? iarcEntry(a, tag) : null; }
+    /* Reference list for the "IARC and food" page, including the agents a label never shows. */
+    function iarcAll() { return (IA.agents || []).map(a => iarcEntry(a, null)); }
+    function iarcNotClassified() { return IA.notclassified || null; }
+
+    return { iarcFor, iarcSummary, iarcForAdditive, iarcForIngredient, iarcAll, iarcNotClassified, iarcGroup, IA,
+      items, ingredientInfo, allergens, glossFor, EX, extractBulgarian, extractEnglish, readable, parseNutrition, mergeNutrition, energyCheck, numCands, analyseText, analyseProduct, summary, kidSummary, flagsFor, additiveInfo, level, cubes, fmt, LEVEL_WORD, LIMITS, suggest, avoidHits, AVOID_RULES, offAdditive, SRC, ING };
   }
 
   const api = { createEngine };
